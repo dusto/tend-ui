@@ -17,21 +17,26 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dusto/tend/api"
+
 	"github.com/dusto/tend-ui/internal/bridge"
 	"github.com/dusto/tend-ui/web"
 	"github.com/dusto/tend-ui/web/templates"
 )
 
-// sseHeartbeat is how often the SSE endpoint emits a comment ping to keep the
+// sseHeartbeat is how often an SSE endpoint emits a comment ping to keep the
 // connection (and any intermediary) from idling out.
 const sseHeartbeat = 15 * time.Second
 
 // Server is the loopback UI server. Base is the tokenized URL the webview loads.
+// It streams two hubs to the browser: workspace events (the activity feed) and
+// pre-rendered session-timeline blocks.
 type Server struct {
 	ln    net.Listener
 	token string
 	base  string
-	hub   *bridge.Hub
+	evHub *bridge.Hub[api.Event]
+	tlHub *bridge.Hub[string]
 }
 
 // newToken returns a fresh unguessable per-run token.
@@ -43,10 +48,10 @@ func newToken() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-// NewServer starts the loopback server and returns it. Events from the daemon
-// (via hub) are streamed to the browser over SSE. The caller navigates the
-// webview to Base() and must Close it on shutdown.
-func NewServer(hub *bridge.Hub) (*Server, error) {
+// NewServer starts the loopback server and returns it. evHub carries raw
+// workspace events (the activity feed); tlHub carries pre-rendered session
+// timeline blocks. The caller navigates the webview to Base() and must Close it.
+func NewServer(evHub *bridge.Hub[api.Event], tlHub *bridge.Hub[string]) (*Server, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("ui: listen: %w", err)
@@ -68,15 +73,22 @@ func NewServer(hub *bridge.Hub) (*Server, error) {
 		ln:    ln,
 		token: token,
 		base:  fmt.Sprintf("http://%s%s", ln.Addr().String(), prefix),
-		hub:   hub,
+		evHub: evHub,
+		tlHub: tlHub,
 	}
 
 	mux := http.NewServeMux()
 	// Static assets (htmx, Alpine, css, fonts). More specific than the index
 	// pattern, so ServeMux routes "<token>/assets/..." here.
 	mux.Handle(prefix+"assets/", http.StripPrefix(prefix+"assets/", http.FileServer(http.FS(assets))))
-	// The live workspace event stream, as SSE for htmx's sse extension.
-	mux.HandleFunc(prefix+"events", s.handleEvents)
+	// The live workspace event feed and the session timeline, each as SSE for
+	// htmx's sse extension.
+	mux.HandleFunc(prefix+"events", func(w http.ResponseWriter, r *http.Request) {
+		serveSSE(w, r, s.evHub, "ev", func(ev api.Event) string { return renderEventLine(r, ev) })
+	})
+	mux.HandleFunc(prefix+"timeline", func(w http.ResponseWriter, r *http.Request) {
+		serveSSE(w, r, s.tlHub, "item", func(html string) string { return html })
+	})
 	// The app shell. Only the exact token root renders it; anything else under
 	// the token that is not an asset is a 404.
 	mux.HandleFunc(prefix, func(w http.ResponseWriter, r *http.Request) {
@@ -92,11 +104,10 @@ func NewServer(hub *bridge.Hub) (*Server, error) {
 	return s, nil
 }
 
-// handleEvents streams the hub's events to the browser as Server-Sent Events.
-// Each event is rendered to an EventLine fragment and sent as an "ev" event, so
-// htmx's sse extension swaps it into the log. It runs until the client
-// disconnects; a periodic comment keeps the connection alive.
-func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+// serveSSE streams a hub to the browser as Server-Sent Events, one `event:
+// <eventName>` frame per value with toHTML(v) as the payload. It runs until the
+// client disconnects; a periodic comment keeps the connection alive.
+func serveSSE[T any](w http.ResponseWriter, r *http.Request, hub *bridge.Hub[T], eventName string, toHTML func(T) string) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
@@ -106,7 +117,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	events, cancel := s.hub.Subscribe()
+	values, cancel := hub.Subscribe()
 	defer cancel()
 
 	bw := bufio.NewWriter(w)
@@ -127,21 +138,24 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			flusher.Flush()
-		case ev, open := <-events:
+		case v, open := <-values:
 			if !open {
 				return
 			}
-			var buf strings.Builder
-			if err := templates.EventLine(ev).Render(r.Context(), &buf); err != nil {
-				continue
-			}
-			writeSSEFrame(bw, "ev", buf.String())
+			writeSSEFrame(bw, eventName, toHTML(v))
 			if bw.Flush() != nil {
 				return
 			}
 			flusher.Flush()
 		}
 	}
+}
+
+// renderEventLine renders a workspace event to its EventLine HTML fragment.
+func renderEventLine(r *http.Request, ev api.Event) string {
+	var b strings.Builder
+	_ = templates.EventLine(ev).Render(r.Context(), &b)
+	return b.String()
 }
 
 // writeSSEFrame writes one SSE event with the given name and HTML payload. The

@@ -9,7 +9,7 @@ import (
 )
 
 func TestHubBroadcastDelivers(t *testing.T) {
-	h := NewHub()
+	h := NewHub[api.Event]()
 	ch, cancel := h.Subscribe()
 	defer cancel()
 
@@ -25,7 +25,7 @@ func TestHubBroadcastDelivers(t *testing.T) {
 }
 
 func TestHubCancelClosesAndIsIdempotent(t *testing.T) {
-	h := NewHub()
+	h := NewHub[api.Event]()
 	ch, cancel := h.Subscribe()
 	cancel()
 	if _, open := <-ch; open {
@@ -37,7 +37,7 @@ func TestHubCancelClosesAndIsIdempotent(t *testing.T) {
 }
 
 func TestHubBroadcastDropsForSlowSubscriber(t *testing.T) {
-	h := NewHub()
+	h := NewHub[api.Event]()
 	_, cancel := h.Subscribe() // never drained
 	defer cancel()
 
@@ -56,7 +56,7 @@ func TestHubBroadcastDropsForSlowSubscriber(t *testing.T) {
 }
 
 func TestOnNotifyBroadcastsAndAdvancesCursor(t *testing.T) {
-	h := NewHub()
+	h := NewHub[api.Event]()
 	ch, cancel := h.Subscribe()
 	defer cancel()
 	b := New("/repo", h)
@@ -82,7 +82,7 @@ func TestOnNotifyBroadcastsAndAdvancesCursor(t *testing.T) {
 }
 
 func TestOnNotifySubscriptionClosedSignalsResub(t *testing.T) {
-	b := New("/repo", NewHub())
+	b := New("/repo", NewHub[api.Event]())
 	resub := make(chan struct{}, 1)
 
 	b.onNotify("event.subscription_closed", json.RawMessage(`{}`), resub)
@@ -98,7 +98,7 @@ func TestOnNotifySubscriptionClosedSignalsResub(t *testing.T) {
 }
 
 func TestOnNotifyIgnoresOtherMethods(t *testing.T) {
-	h := NewHub()
+	h := NewHub[api.Event]()
 	ch, cancel := h.Subscribe()
 	defer cancel()
 	b := New("/repo", h)

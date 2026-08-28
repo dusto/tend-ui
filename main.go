@@ -13,7 +13,10 @@ import (
 
 	webview "github.com/webview/webview_go"
 
+	"github.com/dusto/tend/api"
+
 	"github.com/dusto/tend-ui/internal/bridge"
+	"github.com/dusto/tend-ui/internal/timeline"
 	"github.com/dusto/tend-ui/internal/ui"
 )
 
@@ -34,19 +37,22 @@ func main() {
 // webview loop until the window closes. Split from main so its defers (cancel,
 // server close, webview destroy) run — a log.Fatalf in main would skip them.
 func run() error {
-	// Follow the daemon's workspace stream for the launch directory and fan its
-	// events out to the UI's SSE endpoint. The bridge reconnects on its own, so
-	// tend-ui opens whether or not the daemon is up yet.
-	hub := bridge.NewHub()
+	// Follow the daemon for the launch directory: the workspace stream (activity
+	// feed) and the auto-picked session's stream (timeline), each fanned out to an
+	// SSE endpoint. Both reconnect on their own, so tend-ui opens whether or not
+	// the daemon is up yet.
+	evHub := bridge.NewHub[api.Event]()
+	tlHub := bridge.NewHub[string]()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if dir, err := os.Getwd(); err == nil {
-		go bridge.New(dir, hub).Run(ctx)
+		go bridge.New(dir, evHub).Run(ctx)
+		go timeline.New(dir, tlHub).Run(ctx)
 	} else {
-		log.Printf("tend-ui: no working directory, not following a workspace: %v", err)
+		log.Printf("tend-ui: no working directory, not following the daemon: %v", err)
 	}
 
-	srv, err := ui.NewServer(hub)
+	srv, err := ui.NewServer(evHub, tlHub)
 	if err != nil {
 		return err
 	}

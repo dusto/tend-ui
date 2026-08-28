@@ -1,0 +1,64 @@
+package templates
+
+import "strconv"
+
+// Timeline block fragments. Each is rendered to HTML and appended to the log by
+// htmx's sse extension as one "item" event. Streamed message/thought text is
+// coalesced into a complete block before it reaches these.
+
+templ TLPrompt(text string, attachments int) {
+	<div class="tl you">
+		<div class="tl-gutter"><span class="tl-node"></span></div>
+		<div class="tl-main">
+			<div class="tl-who">you</div>
+			<div class="tl-body pre">{ text }</div>
+			if attachments > 0 {
+				<div class="tl-meta">+{ strconv.Itoa(attachments) } attachment(s)</div>
+			}
+		</div>
+	</div>
+}
+
+templ TLMessage(text string) {
+	<div class="tl agent">
+		<div class="tl-gutter"><span class="tl-node"></span></div>
+		<div class="tl-main">
+			<div class="tl-who">agent</div>
+			<div class="tl-body pre">{ text }</div>
+		</div>
+	</div>
+}
+
+templ TLThought(text string) {
+	<div class="tl thought">
+		<div class="tl-gutter"><span class="tl-node"></span></div>
+		<div class="tl-main">
+			<div class="tl-who">thinking</div>
+			<div class="tl-body pre dim">{ text }</div>
+		</div>
+	</div>
+}
+
+templ TLToolCall(name string) {
+	<div class="tl tool">
+		<div class="tl-gutter"><span class="tl-node"></span></div>
+		<div class="tl-main">
+			<div class="tl-who">tool call</div>
+			<div class="tl-body mono">{ name }</div>
+		</div>
+	</div>
+}
+
+templ TLError(message string) {
+	<div class="tl error">
+		<div class="tl-gutter"><span class="tl-node"></span></div>
+		<div class="tl-main">
+			<div class="tl-who">error</div>
+			<div class="tl-body">{ message }</div>
+		</div>
+	</div>
+}
+
+templ TLTurnEnd() {
+	<div class="tl-divider"><span>turn complete</span></div>
+}

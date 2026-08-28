@@ -30,7 +30,7 @@ var errConnClosed = errors.New("bridge: daemon connection closed")
 // started after the UI.
 type Bridge struct {
 	dir string
-	hub *Hub
+	hub *Hub[api.Event]
 
 	// lastSeq is the CursorSeq of the last workspace event processed. It is the
 	// resume point for events.subscribe. Written on the connection read goroutine
@@ -42,7 +42,7 @@ type Bridge struct {
 }
 
 // New returns a Bridge that follows the workspace for dir.
-func New(dir string, hub *Hub) *Bridge {
+func New(dir string, hub *Hub[api.Event]) *Bridge {
 	return &Bridge{dir: dir, hub: hub}
 }
 

@@ -1,0 +1,134 @@
+package timeline
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+
+	"github.com/dusto/tend/api"
+)
+
+// ev builds a session event of the given type carrying payload.
+func ev(typ string, payload any) api.Event {
+	raw, _ := json.Marshal(payload)
+	return api.Event{Type: typ, Payload: raw}
+}
+
+// collect drives a coalescer through evs and returns the emitted block HTML.
+func collect(evs ...api.Event) []string {
+	var out []string
+	c := newCoalescer(func(html string) { out = append(out, html) })
+	for _, e := range evs {
+		c.handle(e)
+	}
+	return out
+}
+
+func TestCoalesceMergesConsecutiveMessageChunks(t *testing.T) {
+	// Three message chunks flush as ONE message block when a discrete event
+	// (turn_end) follows.
+	out := collect(
+		ev("agent_message_chunk", api.AgentMessageChunk{Text: "Hello, "}),
+		ev("agent_message_chunk", api.AgentMessageChunk{Text: "world"}),
+		ev("agent_message_chunk", api.AgentMessageChunk{Text: "!"}),
+		ev("turn_end", api.TurnEnd{}),
+	)
+	if len(out) != 2 {
+		t.Fatalf("blocks = %d, want 2 (one message + turn divider)\n%v", len(out), out)
+	}
+	if !strings.Contains(out[0], "Hello, world!") {
+		t.Errorf("message block did not merge chunks: %q", out[0])
+	}
+	if !strings.Contains(out[0], "agent") {
+		t.Errorf("first block is not an agent message: %q", out[0])
+	}
+	if !strings.Contains(out[1], "turn complete") {
+		t.Errorf("second block is not the turn divider: %q", out[1])
+	}
+}
+
+func TestCoalesceFlushesMessageBeforeToolCall(t *testing.T) {
+	// A tool_call interrupts a message: the message flushes first, then the tool.
+	out := collect(
+		ev("agent_message_chunk", api.AgentMessageChunk{Text: "let me read the file"}),
+		ev("tool_call", api.ToolCall{Name: "read_buffer"}),
+	)
+	if len(out) != 2 {
+		t.Fatalf("blocks = %d, want 2\n%v", len(out), out)
+	}
+	if !strings.Contains(out[0], "let me read the file") {
+		t.Errorf("message not flushed before tool: %q", out[0])
+	}
+	if !strings.Contains(out[1], "read_buffer") {
+		t.Errorf("tool block missing name: %q", out[1])
+	}
+}
+
+func TestCoalesceSeparatesThoughtFromMessage(t *testing.T) {
+	// A message chunk after thought chunks flushes the thought as its own block.
+	out := collect(
+		ev("agent_thought_chunk", api.AgentThoughtChunk{Text: "considering "}),
+		ev("agent_thought_chunk", api.AgentThoughtChunk{Text: "options"}),
+		ev("agent_message_chunk", api.AgentMessageChunk{Text: "here is the answer"}),
+		ev("turn_end", api.TurnEnd{}),
+	)
+	if len(out) != 3 {
+		t.Fatalf("blocks = %d, want 3 (thought, message, divider)\n%v", len(out), out)
+	}
+	if !strings.Contains(out[0], "considering options") || !strings.Contains(out[0], "thinking") {
+		t.Errorf("thought block wrong: %q", out[0])
+	}
+	if !strings.Contains(out[1], "here is the answer") {
+		t.Errorf("message block wrong: %q", out[1])
+	}
+}
+
+func TestCoalesceRendersPromptAndError(t *testing.T) {
+	out := collect(
+		ev("user_prompt", api.UserPrompt{Text: "fix the bug", Attachments: 2}),
+		ev("agent_error", api.AgentError{Message: "provider timed out"}),
+	)
+	if len(out) != 2 {
+		t.Fatalf("blocks = %d, want 2\n%v", len(out), out)
+	}
+	if !strings.Contains(out[0], "fix the bug") || !strings.Contains(out[0], "you") {
+		t.Errorf("prompt block wrong: %q", out[0])
+	}
+	if !strings.Contains(out[0], "2 attachment") {
+		t.Errorf("prompt block missing attachment count: %q", out[0])
+	}
+	if !strings.Contains(out[1], "provider timed out") {
+		t.Errorf("error block wrong: %q", out[1])
+	}
+}
+
+func TestCoalesceResetDropsBufferedText(t *testing.T) {
+	// A stream switch (reset) must not merge a half-built message into the next.
+	var out []string
+	c := newCoalescer(func(html string) { out = append(out, html) })
+	c.handle(ev("agent_message_chunk", api.AgentMessageChunk{Text: "stale partial"}))
+	c.reset()
+	c.handle(ev("agent_message_chunk", api.AgentMessageChunk{Text: "fresh"}))
+	c.handle(ev("turn_end", api.TurnEnd{}))
+
+	for _, b := range out {
+		if strings.Contains(b, "stale partial") {
+			t.Fatalf("reset did not drop buffered text: %q", b)
+		}
+	}
+	if len(out) == 0 || !strings.Contains(out[0], "fresh") {
+		t.Fatalf("fresh block missing after reset: %v", out)
+	}
+}
+
+func TestCoalesceIgnoresUnhandledTypes(t *testing.T) {
+	// An unhandled discrete type (agent_model_updated) flushes the buffer but
+	// emits nothing itself.
+	out := collect(
+		ev("agent_message_chunk", api.AgentMessageChunk{Text: "hi"}),
+		ev("agent_model_updated", map[string]any{"session_id": "s1"}),
+	)
+	if len(out) != 1 || !strings.Contains(out[0], "hi") {
+		t.Fatalf("want just the flushed message, got %v", out)
+	}
+}

@@ -24,9 +24,9 @@ templ Base(title, tokenBase string) {
 	</html>
 }
 
-// Shell is the top-level app frame. For now it is a live log of the workspace
-// event stream — the first end-to-end proof of the daemon → SSE → browser pipe.
-// The session list, timeline, and inline artifacts land in later beads.
+// Shell is the top-level app frame: a live session timeline (the auto-picked
+// session for the workspace). The session list, header, and inline artifacts
+// land in later beads; the raw workspace feed is still served at /events.
 templ Shell(tokenBase string) {
 	@Base("tend-ui", tokenBase) {
 		<header class="titlebar">
@@ -37,12 +37,15 @@ templ Shell(tokenBase string) {
 		</header>
 		<main class="body">
 			<div class="log-head">
-				<span>Workspace activity</span>
-				<span class="mono dim">workspace stream · live</span>
+				<span>Session timeline</span>
+				<span class="mono dim">live</span>
 			</div>
-			<div class="log-wrap" hx-ext="sse" sse-connect="events">
-				<div id="log" class="log" sse-swap="ev" hx-swap="beforeend scroll:bottom">
-					<div class="ev muted">waiting for workspace events…</div>
+			<div class="log-wrap" hx-ext="sse" sse-connect="timeline">
+				<div id="timeline" class="timeline" sse-swap="item" hx-swap="beforeend scroll:bottom">
+					<div class="tl muted">
+						<div class="tl-gutter"><span class="tl-node"></span></div>
+						<div class="tl-main"><div class="tl-body dim">waiting for a session…</div></div>
+					</div>
 				</div>
 			</div>
 		</main>

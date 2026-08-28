@@ -4,11 +4,9 @@ go 1.26.3
 
 replace github.com/webview/webview_go => ./third_party/webview_go
 
-replace github.com/dusto/tend => ../tend
-
 require (
 	github.com/a-h/templ v0.3.1020
-	github.com/dusto/tend v0.0.0-00010101000000-000000000000
+	github.com/dusto/tend v0.1.1-0.20260828131543-7f8d4a9cb0ff
 	github.com/webview/webview_go v0.0.0-00010101000000-000000000000
 )
 

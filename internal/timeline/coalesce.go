@@ -102,6 +102,18 @@ func (c *coalescer) renderDiscrete(ev api.Event) {
 		if decode(ev, &p) {
 			c.emit(render(templates.TLError(p.Message)))
 		}
+	case "summary":
+		// A compaction record replacing a range of raw turns (served on replay).
+		// Render the condensed text as a collapsed block so compacted history is
+		// preserved rather than dropped; Event.Summary carries the range.
+		var p api.ContextSummary
+		if decode(ev, &p) {
+			var from, to uint64
+			if ev.Summary != nil {
+				from, to = ev.Summary.FromSeq, ev.Summary.ToSeq
+			}
+			c.emit(render(templates.TLSummary(p.Text, from, to)))
+		}
 	case "turn_end":
 		c.emit(render(templates.TLTurnEnd()))
 	}

@@ -193,3 +193,36 @@ body {
   background: var(--line-soft, #1e2732);
   flex: 1;
 }
+
+/* Compaction summary — a collapsed stand-in for condensed turns */
+.tl.summary {
+  margin: 0 0 16px 26px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-2, #12171e);
+  overflow: hidden;
+}
+.tl-summary-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 12px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 12px;
+}
+.tl-summary-head::-webkit-details-marker { display: none; }
+.tl.summary .tl-node {
+  position: static;
+  border-color: var(--think, #a98be0);
+  border-style: dashed;
+}
+.tl.summary .tl-who { margin: 0; color: var(--think, #a98be0); }
+.tl-range { margin-left: auto; color: var(--ink-faint); font-size: 10.5px; }
+.tl-summary-body {
+  padding: 0 12px 11px 32px;
+  font-size: 12.5px;
+  color: var(--ink-mut);
+  border-top: 1px solid var(--line-soft, #1e2732);
+  padding-top: 10px;
+}

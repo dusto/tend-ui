@@ -121,6 +121,31 @@ func TestCoalesceResetDropsBufferedText(t *testing.T) {
 	}
 }
 
+func TestCoalesceRendersCompactionSummary(t *testing.T) {
+	// A summary event (compaction record) renders a collapsed block carrying the
+	// condensed text and the [from,to] range — it must not be dropped. It also
+	// flushes any pending message first.
+	summary := ev("summary", api.ContextSummary{Text: "earlier: set up the daemon and wired the client"})
+	summary.Kind = api.KindSummary
+	summary.Summary = &api.SummaryInfo{FromSeq: 4, ToSeq: 19}
+
+	out := collect(
+		ev("agent_message_chunk", api.AgentMessageChunk{Text: "recent line"}),
+		summary,
+		ev("agent_message_chunk", api.AgentMessageChunk{Text: "after"}),
+		ev("turn_end", api.TurnEnd{}),
+	)
+	if len(out) != 4 {
+		t.Fatalf("blocks = %d, want 4 (message, summary, message, divider)\n%v", len(out), out)
+	}
+	if !strings.Contains(out[1], "earlier: set up the daemon") {
+		t.Errorf("summary text dropped: %q", out[1])
+	}
+	if !strings.Contains(out[1], "summary") || !strings.Contains(out[1], "4") || !strings.Contains(out[1], "19") {
+		t.Errorf("summary block missing kind/range: %q", out[1])
+	}
+}
+
 func TestCoalesceIgnoresUnhandledTypes(t *testing.T) {
 	// An unhandled discrete type (agent_model_updated) flushes the buffer but
 	// emits nothing itself.

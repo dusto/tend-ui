@@ -62,3 +62,18 @@ templ TLError(message string) {
 templ TLTurnEnd() {
 	<div class="tl-divider"><span>turn complete</span></div>
 }
+
+// TLSummary renders a compaction record: a collapsed block standing in for the
+// raw turns in [fromSeq, toSeq] that the daemon condensed away. Rendered on
+// replay in place of the collapsed range, so long/compacted sessions keep their
+// older history as a summary rather than losing it. Click to expand the text.
+templ TLSummary(text string, fromSeq, toSeq uint64) {
+	<details class="tl summary">
+		<summary class="tl-summary-head">
+			<span class="tl-node"></span>
+			<span class="tl-who">summary</span>
+			<span class="tl-range mono">turns { strconv.FormatUint(fromSeq, 10) }–{ strconv.FormatUint(toSeq, 10) } condensed</span>
+		</summary>
+		<div class="tl-summary-body pre">{ text }</div>
+	</details>
+}

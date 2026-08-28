@@ -33,3 +33,7 @@ go.work.sum
 
 # tend-ui binary
 /tend-ui
+
+# local multi-module dev (tend pinned in go.mod; go.work uses ../tend locally)
+/go.work
+/go.work.sum

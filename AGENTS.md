@@ -64,6 +64,14 @@ These are deliberate. Do not introduce the rejected alternatives without an expl
 | Logging | `log/slog` | zap / logrus / zerolog |
 | DI | manual constructor injection | wire / dig / fx / samber-do |
 
+### The `tend` dependency
+
+`github.com/dusto/tend` (the `api` + `client` packages) is **pinned in `go.mod`** at a
+pseudo-version, so CI and fresh clones resolve it from the public proxy — no local
+checkout required. For local co-development against a sibling `../tend`, use a **gitignored
+`go.work`** (`use .` + `use ../tend`); it overrides the pin locally and is absent in CI.
+When tend-ui starts using a newer tend feature, re-pin: `GOWORK=off go get github.com/dusto/tend@main && GOWORK=off go mod tidy`. `third_party/webview_go` is a committed in-repo replace, so it needs no such handling.
+
 ## Frontend rules (load-bearing)
 
 - **Main-thread affinity.** `runtime.LockOSThread()` must run before the webview; GTK/WebKit

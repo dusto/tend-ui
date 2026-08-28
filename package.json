@@ -1,0 +1,10 @@
+{
+  "name": "tend-ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Frontend tests + tooling for tend-ui. The app itself is a Go binary; there is no JS build step (htmx/Alpine are vendored + embedded).",
+  "scripts": {
+    "test": "node --test web/assets/js/_tests/*.test.js"
+  }
+}

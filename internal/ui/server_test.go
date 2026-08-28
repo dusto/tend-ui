@@ -10,15 +10,17 @@ import (
 	"github.com/dusto/tend-ui/internal/ui"
 )
 
-func get(t *testing.T, u string) (*http.Response, string) {
+// get fetches u and returns the status code and body, closing the body itself
+// so callers hold no *http.Response (keeps bodyclose happy).
+func get(t *testing.T, u string) (int, string) {
 	t.Helper()
 	resp, err := http.Get(u)
 	if err != nil {
 		t.Fatalf("GET %s: %v", u, err)
 	}
+	defer func() { _ = resp.Body.Close() }()
 	b, _ := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	return resp, string(b)
+	return resp.StatusCode, string(b)
 }
 
 func TestServerServesShellAndAssets(t *testing.T) {
@@ -29,9 +31,9 @@ func TestServerServesShellAndAssets(t *testing.T) {
 	defer func() { _ = s.Close() }()
 
 	// The app shell renders at the tokenized base.
-	resp, body := get(t, s.Base())
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("shell status = %d", resp.StatusCode)
+	status, body := get(t, s.Base())
+	if status != http.StatusOK {
+		t.Fatalf("shell status = %d", status)
 	}
 	for _, want := range []string{"<title>tend-ui</title>", `href="assets/app.css"`, "assets/htmx.min.js"} {
 		if !strings.Contains(body, want) {
@@ -40,9 +42,9 @@ func TestServerServesShellAndAssets(t *testing.T) {
 	}
 
 	// An embedded asset is served under the token path.
-	resp, css := get(t, s.Base()+"assets/app.css")
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("asset status = %d", resp.StatusCode)
+	status, css := get(t, s.Base()+"assets/app.css")
+	if status != http.StatusOK {
+		t.Fatalf("asset status = %d", status)
 	}
 	if !strings.Contains(css, "--teal") {
 		t.Error("app.css did not come through the embed")
@@ -59,8 +61,8 @@ func TestServerTokenGuardsRoot(t *testing.T) {
 	// A request without the per-run token in the path has no handler → 404.
 	u, _ := url.Parse(s.Base())
 	u.Path = "/"
-	resp, _ := get(t, u.String())
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("untokened root status = %d, want 404", resp.StatusCode)
+	status, _ := get(t, u.String())
+	if status != http.StatusNotFound {
+		t.Errorf("untokened root status = %d, want 404", status)
 	}
 }

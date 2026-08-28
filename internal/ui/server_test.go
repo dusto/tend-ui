@@ -30,7 +30,7 @@ func get(t *testing.T, u string) (int, string) {
 }
 
 func TestServerServesShellAndAssets(t *testing.T) {
-	s, err := ui.NewServer(bridge.NewHub())
+	s, err := ui.NewServer(bridge.NewHub[api.Event](), bridge.NewHub[string]())
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestServerServesShellAndAssets(t *testing.T) {
 }
 
 func TestServerTokenGuardsRoot(t *testing.T) {
-	s, err := ui.NewServer(bridge.NewHub())
+	s, err := ui.NewServer(bridge.NewHub[api.Event](), bridge.NewHub[string]())
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -73,17 +73,39 @@ func TestServerTokenGuardsRoot(t *testing.T) {
 	}
 }
 
-func TestEventsSSEStreamsHubBroadcasts(t *testing.T) {
-	hub := bridge.NewHub()
-	s, err := ui.NewServer(hub)
+func TestEventsSSEStreamsWorkspaceBroadcasts(t *testing.T) {
+	evHub := bridge.NewHub[api.Event]()
+	s, err := ui.NewServer(evHub, bridge.NewHub[string]())
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
 	defer func() { _ = s.Close() }()
 
+	assertSSEDelivers(t, s.Base()+"events", "provider_started", func() {
+		evHub.Broadcast(api.Event{Type: "provider_started", Seq: 1, TS: time.Unix(0, 0)})
+	})
+}
+
+func TestTimelineSSEStreamsRenderedBlocks(t *testing.T) {
+	tlHub := bridge.NewHub[string]()
+	s, err := ui.NewServer(bridge.NewHub[api.Event](), tlHub)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	assertSSEDelivers(t, s.Base()+"timeline", "tl-marker-42", func() {
+		tlHub.Broadcast(`<div class="tl">tl-marker-42</div>`)
+	})
+}
+
+// assertSSEDelivers opens the SSE endpoint at url, runs broadcast once the
+// stream is open, and fails unless a line containing want arrives.
+func assertSSEDelivers(t *testing.T, url, want string, broadcast func()) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, s.Base()+"events", nil)
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("open SSE: %v", err)
@@ -93,23 +115,23 @@ func TestEventsSSEStreamsHubBroadcasts(t *testing.T) {
 		t.Fatalf("content-type = %q", ct)
 	}
 
-	// Wait for the opening comment so the subscription is registered, then
-	// broadcast — otherwise the event could be dropped before anyone is listening.
+	// Broadcast only after the opening comment, so the subscription is registered
+	// (a broadcast before anyone listens is dropped by design).
 	sc := bufio.NewScanner(resp.Body)
-	sawConnected, sawEvent := false, false
+	sawConnected, saw := false, false
 	for sc.Scan() {
 		line := sc.Text()
 		if !sawConnected && strings.HasPrefix(line, ": connected") {
 			sawConnected = true
-			hub.Broadcast(api.Event{Type: "provider_started", Seq: 1, TS: time.Unix(0, 0)})
+			broadcast()
 			continue
 		}
-		if strings.Contains(line, "provider_started") {
-			sawEvent = true
+		if strings.Contains(line, want) {
+			saw = true
 			break
 		}
 	}
-	if !sawEvent {
-		t.Fatal("did not receive the broadcast event over SSE")
+	if !saw {
+		t.Fatalf("did not receive %q over SSE", want)
 	}
 }

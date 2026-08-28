@@ -76,9 +76,9 @@ func Base(title, tokenBase string) templ.Component {
 	})
 }
 
-// Shell is the top-level app frame. For now it is a live log of the workspace
-// event stream — the first end-to-end proof of the daemon → SSE → browser pipe.
-// The session list, timeline, and inline artifacts land in later beads.
+// Shell is the top-level app frame: a live session timeline (the auto-picked
+// session for the workspace). The session list, header, and inline artifacts
+// land in later beads; the raw workspace feed is still served at /events.
 func Shell(tokenBase string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -112,7 +112,7 @@ func Shell(tokenBase string) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<header class=\"titlebar\"><span class=\"glyph\">t</span> <span class=\"brand\"><b>tend</b><span class=\"dim\">-ui</span></span> <span class=\"mono sub\">session console</span> <span class=\"conn\"><span class=\"dot\"></span> connected</span></header><main class=\"body\"><div class=\"log-head\"><span>Workspace activity</span> <span class=\"mono dim\">workspace stream · live</span></div><div class=\"log-wrap\" hx-ext=\"sse\" sse-connect=\"events\"><div id=\"log\" class=\"log\" sse-swap=\"ev\" hx-swap=\"beforeend scroll:bottom\"><div class=\"ev muted\">waiting for workspace events…</div></div></div></main>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<header class=\"titlebar\"><span class=\"glyph\">t</span> <span class=\"brand\"><b>tend</b><span class=\"dim\">-ui</span></span> <span class=\"mono sub\">session console</span> <span class=\"conn\"><span class=\"dot\"></span> connected</span></header><main class=\"body\"><div class=\"log-head\"><span>Session timeline</span> <span class=\"mono dim\">live</span></div><div class=\"log-wrap\" hx-ext=\"sse\" sse-connect=\"timeline\"><div id=\"timeline\" class=\"timeline\" sse-swap=\"item\" hx-swap=\"beforeend scroll:bottom\"><div class=\"tl muted\"><div class=\"tl-gutter\"><span class=\"tl-node\"></span></div><div class=\"tl-main\"><div class=\"tl-body dim\">waiting for a session…</div></div></div></div></div></main>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -155,7 +155,7 @@ func EventLine(ev api.Event) templ.Component {
 		var templ_7745c5c3_Var7 string
 		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(evTime(ev))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `base.templ`, Line: 55, Col: 41}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `base.templ`, Line: 58, Col: 41}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 		if templ_7745c5c3_Err != nil {
@@ -168,7 +168,7 @@ func EventLine(ev api.Event) templ.Component {
 		var templ_7745c5c3_Var8 string
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(ev.Type)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `base.templ`, Line: 56, Col: 33}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `base.templ`, Line: 59, Col: 33}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {
@@ -186,7 +186,7 @@ func EventLine(ev api.Event) templ.Component {
 			var templ_7745c5c3_Var9 string
 			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(evRoot(ev))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `base.templ`, Line: 58, Col: 40}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `base.templ`, Line: 61, Col: 40}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 			if templ_7745c5c3_Err != nil {

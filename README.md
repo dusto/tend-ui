@@ -38,8 +38,14 @@ HTTP server that adapts daemon JSON-RPC to HTML. See ADR 0005 in the tend repo.
 make build      # go build -o tend-ui .
 make run        # build + launch the window
 make test       # go test ./...
+make js-test    # JS unit tests (Node built-in runner)
+make lint       # golangci-lint
 make generate   # regenerate templ + tidy
+make check      # the full pre-PR gate (mirrors CI)
 ```
+
+Standards, tech-choice rationale, and the pre-PR checklist live in
+[AGENTS.md](AGENTS.md).
 
 `TENDUI_DEBUG=1 ./tend-ui` opens the WebKitGTK inspector for development.
 

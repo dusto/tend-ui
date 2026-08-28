@@ -7,22 +7,31 @@
 package ui
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"net"
 	"net/http"
+	"strings"
+	"time"
 
+	"github.com/dusto/tend-ui/internal/bridge"
 	"github.com/dusto/tend-ui/web"
 	"github.com/dusto/tend-ui/web/templates"
 )
+
+// sseHeartbeat is how often the SSE endpoint emits a comment ping to keep the
+// connection (and any intermediary) from idling out.
+const sseHeartbeat = 15 * time.Second
 
 // Server is the loopback UI server. Base is the tokenized URL the webview loads.
 type Server struct {
 	ln    net.Listener
 	token string
 	base  string
+	hub   *bridge.Hub
 }
 
 // newToken returns a fresh unguessable per-run token.
@@ -34,9 +43,10 @@ func newToken() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-// NewServer starts the loopback server and returns it. The caller navigates the
+// NewServer starts the loopback server and returns it. Events from the daemon
+// (via hub) are streamed to the browser over SSE. The caller navigates the
 // webview to Base() and must Close it on shutdown.
-func NewServer() (*Server, error) {
+func NewServer(hub *bridge.Hub) (*Server, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("ui: listen: %w", err)
@@ -54,10 +64,19 @@ func NewServer() (*Server, error) {
 		return nil, fmt.Errorf("ui: assets: %w", err)
 	}
 
+	s := &Server{
+		ln:    ln,
+		token: token,
+		base:  fmt.Sprintf("http://%s%s", ln.Addr().String(), prefix),
+		hub:   hub,
+	}
+
 	mux := http.NewServeMux()
 	// Static assets (htmx, Alpine, css, fonts). More specific than the index
 	// pattern, so ServeMux routes "<token>/assets/..." here.
 	mux.Handle(prefix+"assets/", http.StripPrefix(prefix+"assets/", http.FileServer(http.FS(assets))))
+	// The live workspace event stream, as SSE for htmx's sse extension.
+	mux.HandleFunc(prefix+"events", s.handleEvents)
 	// The app shell. Only the exact token root renders it; anything else under
 	// the token that is not an asset is a 404.
 	mux.HandleFunc(prefix, func(w http.ResponseWriter, r *http.Request) {
@@ -69,13 +88,71 @@ func NewServer() (*Server, error) {
 		_ = templates.Shell(prefix).Render(r.Context(), w)
 	})
 
-	s := &Server{
-		ln:    ln,
-		token: token,
-		base:  fmt.Sprintf("http://%s%s", ln.Addr().String(), prefix),
-	}
 	go func() { _ = http.Serve(ln, mux) }()
 	return s, nil
+}
+
+// handleEvents streams the hub's events to the browser as Server-Sent Events.
+// Each event is rendered to an EventLine fragment and sent as an "ev" event, so
+// htmx's sse extension swaps it into the log. It runs until the client
+// disconnects; a periodic comment keeps the connection alive.
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	events, cancel := s.hub.Subscribe()
+	defer cancel()
+
+	bw := bufio.NewWriter(w)
+	_, _ = bw.WriteString(": connected\n\n") // open the stream immediately
+	_ = bw.Flush()
+	flusher.Flush()
+
+	ticker := time.NewTicker(sseHeartbeat)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			_, _ = bw.WriteString(": ping\n\n")
+			if bw.Flush() != nil {
+				return
+			}
+			flusher.Flush()
+		case ev, open := <-events:
+			if !open {
+				return
+			}
+			var buf strings.Builder
+			if err := templates.EventLine(ev).Render(r.Context(), &buf); err != nil {
+				continue
+			}
+			writeSSEFrame(bw, "ev", buf.String())
+			if bw.Flush() != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
+}
+
+// writeSSEFrame writes one SSE event with the given name and HTML payload. The
+// payload may span lines; each becomes its own data: line (the client rejoins
+// them with newlines).
+func writeSSEFrame(w *bufio.Writer, event, payload string) {
+	_, _ = w.WriteString("event: " + event + "\n")
+	for _, line := range strings.Split(payload, "\n") {
+		_, _ = w.WriteString("data: " + line + "\n")
+	}
+	_, _ = w.WriteString("\n")
 }
 
 // Base is the tokenized URL the webview should load.

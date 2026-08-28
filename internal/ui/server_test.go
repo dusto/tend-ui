@@ -1,12 +1,18 @@
 package ui_test
 
 import (
+	"bufio"
+	"context"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/dusto/tend/api"
+
+	"github.com/dusto/tend-ui/internal/bridge"
 	"github.com/dusto/tend-ui/internal/ui"
 )
 
@@ -24,7 +30,7 @@ func get(t *testing.T, u string) (int, string) {
 }
 
 func TestServerServesShellAndAssets(t *testing.T) {
-	s, err := ui.NewServer()
+	s, err := ui.NewServer(bridge.NewHub())
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -52,7 +58,7 @@ func TestServerServesShellAndAssets(t *testing.T) {
 }
 
 func TestServerTokenGuardsRoot(t *testing.T) {
-	s, err := ui.NewServer()
+	s, err := ui.NewServer(bridge.NewHub())
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -64,5 +70,46 @@ func TestServerTokenGuardsRoot(t *testing.T) {
 	status, _ := get(t, u.String())
 	if status != http.StatusNotFound {
 		t.Errorf("untokened root status = %d, want 404", status)
+	}
+}
+
+func TestEventsSSEStreamsHubBroadcasts(t *testing.T) {
+	hub := bridge.NewHub()
+	s, err := ui.NewServer(hub)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, s.Base()+"events", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("open SSE: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("content-type = %q", ct)
+	}
+
+	// Wait for the opening comment so the subscription is registered, then
+	// broadcast — otherwise the event could be dropped before anyone is listening.
+	sc := bufio.NewScanner(resp.Body)
+	sawConnected, sawEvent := false, false
+	for sc.Scan() {
+		line := sc.Text()
+		if !sawConnected && strings.HasPrefix(line, ": connected") {
+			sawConnected = true
+			hub.Broadcast(api.Event{Type: "provider_started", Seq: 1, TS: time.Unix(0, 0)})
+			continue
+		}
+		if strings.Contains(line, "provider_started") {
+			sawEvent = true
+			break
+		}
+	}
+	if !sawEvent {
+		t.Fatal("did not receive the broadcast event over SSE")
 	}
 }

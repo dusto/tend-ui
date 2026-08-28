@@ -8,5 +8,11 @@ replace github.com/dusto/tend => ../tend
 
 require (
 	github.com/a-h/templ v0.3.1020
+	github.com/dusto/tend v0.0.0-00010101000000-000000000000
 	github.com/webview/webview_go v0.0.0-00010101000000-000000000000
+)
+
+require (
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
+	golang.org/x/text v0.14.0 // indirect
 )

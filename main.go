@@ -55,10 +55,11 @@ func run() error {
 	tl := timeline.New(dir, tlHub)
 	lister := session.NewLister(dir)
 	defer func() { _ = lister.Close() }()
-	go bridge.New(dir, evHub).Run(ctx)
+	wsBridge := bridge.New(dir, evHub)
+	go wsBridge.Run(ctx)
 	go tl.Run(ctx)
 
-	srv, err := ui.NewServer(evHub, tlHub, lister, tl)
+	srv, err := ui.NewServer(evHub, tlHub, lister, tl, wsBridge)
 	if err != nil {
 		return err
 	}

@@ -32,13 +32,13 @@ templ Base(title, tokenBase string) {
 // follow) beside the focused session's header and live timeline. Inline
 // artifacts land in a later bead; the raw workspace feed is still served at
 // /events.
-templ Shell(tokenBase string, sessions []api.SessionInfo, currentID api.SessionID, header SessionHeaderData, tools []session.ToolRef) {
+templ Shell(tokenBase string, sessions []api.SessionInfo, currentID api.SessionID, header SessionHeaderData, tools []session.ToolRef, connected bool) {
 	@Base("tend-ui", tokenBase) {
 		<header class="titlebar">
 			<span class="glyph">t</span>
 			<span class="brand"><b>tend</b><span class="dim">-ui</span></span>
 			<span class="mono sub">session console</span>
-			<span class="conn"><span class="dot"></span> connected</span>
+			@ConnIndicator(connected)
 		</header>
 		<div class="body-split">
 			<aside class="rail">
@@ -62,6 +62,21 @@ templ Shell(tokenBase string, sessions []api.SessionInfo, currentID api.SessionI
 			</aside>
 		</div>
 	}
+}
+
+// ConnIndicator is the titlebar's daemon-connection status. htmx polls /status
+// so it reflects the live connection rather than a hardcoded value: green when
+// the bridge holds a subscribed daemon connection, amber "reconnecting…" when it
+// does not (daemon down, or not started yet).
+templ ConnIndicator(connected bool) {
+	<span id="conn" class={ "conn", templ.KV("down", !connected) } hx-get="status" hx-trigger="every 2s" hx-swap="outerHTML">
+		<span class="dot"></span>
+		if connected {
+			connected
+		} else {
+			reconnecting…
+		}
+	</span>
 }
 
 // TimelinePanel is the SSE-connected timeline container. It is also the swap

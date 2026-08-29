@@ -87,6 +87,11 @@ body {
   background: var(--done);
   box-shadow: 0 0 0 3px rgba(75, 184, 90, 0.16);
 }
+.titlebar .conn.down { color: #e3b341; }
+.titlebar .conn.down .dot {
+  background: #e3b341;
+  box-shadow: 0 0 0 3px rgba(227, 179, 65, 0.16);
+}
 
 .body-split {
   flex: 1;

@@ -47,6 +47,12 @@ type Lister interface {
 	List(ctx context.Context) ([]api.SessionInfo, error)
 }
 
+// ConnStatus reports whether the daemon connection is live, for the titlebar
+// indicator. *bridge.Bridge satisfies it.
+type ConnStatus interface {
+	Connected() bool
+}
+
 // Server is the loopback UI server. Base is the tokenized URL the webview loads.
 // It streams two hubs to the browser: workspace events (the activity feed) and
 // pre-rendered session-timeline blocks; it also serves the session rail and
@@ -59,6 +65,7 @@ type Server struct {
 	tlHub *bridge.Hub[string]
 	list  Lister
 	tl    SessionSurface
+	conn  ConnStatus
 }
 
 // newToken returns a fresh unguessable per-run token.
@@ -74,7 +81,7 @@ func newToken() (string, error) {
 // workspace events (the activity feed); tlHub carries pre-rendered session
 // timeline blocks; list backs the session rail and tl receives its selection.
 // The caller navigates the webview to Base() and must Close it.
-func NewServer(evHub *bridge.Hub[api.Event], tlHub *bridge.Hub[string], list Lister, tl SessionSurface) (*Server, error) {
+func NewServer(evHub *bridge.Hub[api.Event], tlHub *bridge.Hub[string], list Lister, tl SessionSurface, conn ConnStatus) (*Server, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("ui: listen: %w", err)
@@ -100,6 +107,7 @@ func NewServer(evHub *bridge.Hub[api.Event], tlHub *bridge.Hub[string], list Lis
 		tlHub: tlHub,
 		list:  list,
 		tl:    tl,
+		conn:  conn,
 	}
 
 	mux := http.NewServeMux()
@@ -119,6 +127,7 @@ func NewServer(evHub *bridge.Hub[api.Event], tlHub *bridge.Hub[string], list Lis
 	mux.HandleFunc(prefix+"select", s.handleSelect)
 	mux.HandleFunc(prefix+"header", s.handleHeader)
 	mux.HandleFunc(prefix+"jump", s.handleJump)
+	mux.HandleFunc(prefix+"status", s.handleStatus)
 	// The app shell. Only the exact token root renders it; anything else under
 	// the token that is not an asset is a 404.
 	mux.HandleFunc(prefix, func(w http.ResponseWriter, r *http.Request) {
@@ -128,7 +137,7 @@ func NewServer(evHub *bridge.Hub[api.Event], tlHub *bridge.Hub[string], list Lis
 		}
 		sessions, _ := s.list.List(r.Context())
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = templates.Shell(prefix, sessions, s.tl.Current(), s.headerData(sessions), s.tl.ToolCalls()).Render(r.Context(), w)
+		_ = templates.Shell(prefix, sessions, s.tl.Current(), s.headerData(sessions), s.tl.ToolCalls(), s.conn.Connected()).Render(r.Context(), w)
 	})
 
 	go func() { _ = http.Serve(ln, mux) }()
@@ -146,6 +155,13 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = templates.SessionRail(sessions, s.tl.Current()).Render(r.Context(), w)
+}
+
+// handleStatus renders the titlebar connection indicator (htmx-polled), so it
+// reflects the live daemon connection rather than a hardcoded value.
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = templates.ConnIndicator(s.conn.Connected()).Render(r.Context(), w)
 }
 
 // handleJump renders the tool-call jump-index rail (htmx polls it to keep the

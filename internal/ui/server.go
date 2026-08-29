@@ -38,6 +38,7 @@ type SessionSurface interface {
 	Select(id api.SessionID)
 	Current() api.SessionID
 	Usage() session.Usage
+	ToolCalls() []session.ToolRef
 }
 
 // Lister returns the workspace's sessions for the rail. *session.Lister
@@ -117,6 +118,7 @@ func NewServer(evHub *bridge.Hub[api.Event], tlHub *bridge.Hub[string], list Lis
 	mux.HandleFunc(prefix+"sessions", s.handleSessions)
 	mux.HandleFunc(prefix+"select", s.handleSelect)
 	mux.HandleFunc(prefix+"header", s.handleHeader)
+	mux.HandleFunc(prefix+"jump", s.handleJump)
 	// The app shell. Only the exact token root renders it; anything else under
 	// the token that is not an asset is a 404.
 	mux.HandleFunc(prefix, func(w http.ResponseWriter, r *http.Request) {
@@ -126,7 +128,7 @@ func NewServer(evHub *bridge.Hub[api.Event], tlHub *bridge.Hub[string], list Lis
 		}
 		sessions, _ := s.list.List(r.Context())
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = templates.Shell(prefix, sessions, s.tl.Current(), s.headerData(sessions)).Render(r.Context(), w)
+		_ = templates.Shell(prefix, sessions, s.tl.Current(), s.headerData(sessions), s.tl.ToolCalls()).Render(r.Context(), w)
 	})
 
 	go func() { _ = http.Serve(ln, mux) }()
@@ -144,6 +146,13 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = templates.SessionRail(sessions, s.tl.Current()).Render(r.Context(), w)
+}
+
+// handleJump renders the tool-call jump-index rail (htmx polls it to keep the
+// list and per-call status live).
+func (s *Server) handleJump(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = templates.JumpIndex(s.tl.ToolCalls()).Render(r.Context(), w)
 }
 
 // handleHeader renders the focused-session header fragment (htmx polls it to

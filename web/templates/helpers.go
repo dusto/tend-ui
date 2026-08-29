@@ -76,6 +76,18 @@ func statusClass(s api.SessionStatus) string {
 	}
 }
 
+// statusClass2 maps a tool-call status to a CSS modifier.
+func statusClass2(status string) string {
+	switch status {
+	case "completed":
+		return "ok"
+	case "failed", "error":
+		return "fail"
+	default:
+		return "run"
+	}
+}
+
 // statusLabel is the short human-facing status text.
 func statusLabel(s api.SessionStatus) string {
 	switch s {

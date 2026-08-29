@@ -4,10 +4,11 @@ import "strconv"
 
 // Timeline block fragments. Each is rendered to HTML and appended to the log by
 // htmx's sse extension as one "item" event. Streamed message/thought text is
-// coalesced into a complete block before it reaches these.
+// coalesced into a complete block before it reaches these. data-kind classifies
+// a block for the timeline filter (all / tool / edit).
 
 templ TLPrompt(text string, attachments int) {
-	<div class="tl you">
+	<div class="tl you" data-kind="prompt">
 		<div class="tl-gutter"><span class="tl-node"></span></div>
 		<div class="tl-main">
 			<div class="tl-who">you</div>
@@ -20,7 +21,7 @@ templ TLPrompt(text string, attachments int) {
 }
 
 templ TLMessage(text string) {
-	<div class="tl agent">
+	<div class="tl agent" data-kind="message">
 		<div class="tl-gutter"><span class="tl-node"></span></div>
 		<div class="tl-main">
 			<div class="tl-who">agent</div>
@@ -30,7 +31,7 @@ templ TLMessage(text string) {
 }
 
 templ TLThought(text string) {
-	<div class="tl thought">
+	<div class="tl thought" data-kind="thought">
 		<div class="tl-gutter"><span class="tl-node"></span></div>
 		<div class="tl-main">
 			<div class="tl-who">thinking</div>
@@ -39,18 +40,48 @@ templ TLThought(text string) {
 	</div>
 }
 
-templ TLToolCall(name string) {
-	<div class="tl tool">
+// TLToolCall renders a tool call, anchored at "tc-"+id so the jump-index can
+// scroll to it; its status span ("tcs-"+id) is later swapped out of band by
+// TLToolStatus. kind is "tool" or "edit" (the filter axis).
+templ TLToolCall(id, name, arg, kind string) {
+	<div class={ "tl tool", "kind-" + kind } data-kind={ kind } id={ "tc-" + id }>
 		<div class="tl-gutter"><span class="tl-node"></span></div>
 		<div class="tl-main">
-			<div class="tl-who">tool call</div>
-			<div class="tl-body mono">{ name }</div>
+			<div class="tl-who">
+				if kind == "edit" {
+					supervised edit
+				} else {
+					tool call
+				}
+			</div>
+			<div class="tl-tool">
+				<span class="tl-fn mono">{ name }</span>
+				if arg != "" {
+					<span class="tl-arg mono">{ arg }</span>
+				}
+				@TLToolStatus(id, "running", false)
+			</div>
 		</div>
 	</div>
 }
 
+// TLToolStatus is the tool call's status chip. Embedded in the initial card with
+// oob=false (a normal in-place span); rendered again with oob=true for a
+// tool_call_update so htmx swaps just this chip out of band. The initial chip
+// MUST NOT carry hx-swap-oob, or htmx would treat it as an OOB swap when the card
+// is appended (no target yet) and drop it, leaving later updates with no target.
+templ TLToolStatus(id, status string, oob bool) {
+	<span
+		id={ "tcs-" + id }
+		if oob {
+			hx-swap-oob="true"
+		}
+		class={ "tl-tstat", "ts-" + statusClass2(status) }
+	>{ status }</span>
+}
+
 templ TLError(message string) {
-	<div class="tl error">
+	<div class="tl error" data-kind="error">
 		<div class="tl-gutter"><span class="tl-node"></span></div>
 		<div class="tl-main">
 			<div class="tl-who">error</div>
@@ -60,7 +91,7 @@ templ TLError(message string) {
 }
 
 templ TLTurnEnd() {
-	<div class="tl-divider"><span>turn complete</span></div>
+	<div class="tl-divider" data-kind="turn"><span>turn complete</span></div>
 }
 
 // TLSummary renders a compaction record: a collapsed block standing in for the
@@ -68,7 +99,7 @@ templ TLTurnEnd() {
 // replay in place of the collapsed range, so long/compacted sessions keep their
 // older history as a summary rather than losing it. Click to expand the text.
 templ TLSummary(text string, fromSeq, toSeq uint64) {
-	<details class="tl summary">
+	<details class="tl summary" data-kind="summary">
 		<summary class="tl-summary-head">
 			<span class="tl-node"></span>
 			<span class="tl-who">summary</span>

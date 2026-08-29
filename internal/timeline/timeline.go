@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/dusto/tend-ui/internal/bridge"
 	"github.com/dusto/tend-ui/internal/session"
+	"github.com/dusto/tend-ui/web/templates"
 )
 
 const (
@@ -56,6 +58,11 @@ type Timeline struct {
 	// usage is the followed session's latest token/context accounting, updated
 	// from its stream's usage events (guarded by mu) and read by the header.
 	usage session.Usage
+
+	// tools is the followed session's tool calls in order, for the jump-index.
+	// Guarded by mu; reset on a session switch.
+	tools   []session.ToolRef
+	toolIdx map[string]int // tool_call_id -> index in tools
 }
 
 // New returns a Timeline that pushes rendered blocks to hub.
@@ -90,6 +97,16 @@ func (t *Timeline) Usage() session.Usage {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.usage
+}
+
+// ToolCalls returns the followed session's tool calls, in order, for the
+// jump-index. The slice is a copy safe to render without the lock.
+func (t *Timeline) ToolCalls() []session.ToolRef {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	out := make([]session.ToolRef, len(t.tools))
+	copy(out, t.tools)
+	return out
 }
 
 // Run connects and follows until ctx is cancelled, reconnecting with a fixed
@@ -208,6 +225,8 @@ func (t *Timeline) setStream(sess api.SessionInfo, epoch string) {
 	t.lastSeq.Store(0)
 	t.coal.reset()
 	t.usage = session.Usage{} // a new session starts with no accounting
+	t.tools = nil
+	t.toolIdx = map[string]int{}
 	t.mu.Unlock()
 	t.hub.Broadcast(clearFrame)
 }
@@ -283,6 +302,7 @@ func (t *Timeline) onNotify(method string, params json.RawMessage, resub chan<- 
 		}
 		t.lastSeq.Store(p.Event.CursorSeq)
 		t.applyUsage(p.Event)
+		t.applyTools(p.Event)
 		t.coal.handle(p.Event)
 		t.mu.Unlock()
 	case "event.subscription_closed":
@@ -332,6 +352,85 @@ func (t *Timeline) applyUsage(ev api.Event) {
 			t.usage.HasPrompt = true
 		}
 	}
+}
+
+// applyTools tracks tool calls for the jump-index and reflects their status.
+// Called under t.mu (from onNotify). A tool_call appends a ref; a
+// tool_call_update updates its status and pushes an out-of-band status swap so
+// the inline card reflects completion without re-rendering the whole timeline.
+func (t *Timeline) applyTools(ev api.Event) {
+	switch ev.Type {
+	case "tool_call":
+		var p api.ToolCall
+		if json.Unmarshal(ev.Payload, &p) != nil || p.ToolCallID == "" {
+			return
+		}
+		if t.toolIdx == nil {
+			t.toolIdx = map[string]int{}
+		}
+		if _, seen := t.toolIdx[p.ToolCallID]; seen {
+			return // replay re-delivery
+		}
+		t.toolIdx[p.ToolCallID] = len(t.tools)
+		t.tools = append(t.tools, session.ToolRef{
+			ID: p.ToolCallID, Name: p.Name, Kind: toolKind(p.Name),
+			Arg: argSummary(p.RawInput), Status: "running",
+		})
+	case "tool_call_update":
+		var p api.ToolCallUpdate
+		if json.Unmarshal(ev.Payload, &p) != nil {
+			return
+		}
+		if i, ok := t.toolIdx[p.ToolCallID]; ok && p.Status != "" {
+			t.tools[i].Status = p.Status
+			t.hub.Broadcast(render(templates.TLToolStatus(p.ToolCallID, p.Status, true)))
+		}
+	}
+}
+
+// toolKind classifies a tool for the timeline filter: buffer mutations are
+// "edit" (the Edits/Diffs tab), everything else "tool".
+func toolKind(name string) string {
+	switch name {
+	case "write_buffer", "edit_buffer":
+		return "edit"
+	default:
+		return "tool"
+	}
+}
+
+// argSummary pulls a short human-facing argument out of a tool's raw input — the
+// file uri/path for the editor tools — or "" when there is nothing concise.
+func argSummary(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var a struct {
+		URI  string `json:"uri"`
+		Path string `json:"path"`
+		File string `json:"file"`
+	}
+	if json.Unmarshal(raw, &a) != nil {
+		return ""
+	}
+	switch {
+	case a.URI != "":
+		return trimFileURI(a.URI)
+	case a.Path != "":
+		return a.Path
+	case a.File != "":
+		return a.File
+	}
+	return ""
+}
+
+// trimFileURI shows a file:// uri as a plain path (its basename-ish tail),
+// falling back to the raw value for a non-file uri.
+func trimFileURI(uri string) string {
+	if p, ok := strings.CutPrefix(uri, "file://"); ok {
+		return p
+	}
+	return uri
 }
 
 // reset clears any buffered chunk text (a switched stream must not merge into a

@@ -2,6 +2,7 @@ package timeline
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -141,6 +142,62 @@ func TestSubscriptionClosedFiltersByStream(t *testing.T) {
 	case <-resub:
 	default:
 		t.Fatal("current-stream close did not trigger a re-subscribe")
+	}
+}
+
+func TestToolTrackingAndStatusUpdate(t *testing.T) {
+	hub := bridge.NewHub[string]()
+	out, cancel := hub.Subscribe()
+	defer cancel()
+	tl := New("/repo", hub)
+	tl.setStream(api.SessionInfo{SessionID: "ses-1", StreamID: "session:ses-1"}, "e1")
+	<-out // drain clear frame
+
+	resub := make(chan struct{}, 1)
+	push := func(typ string, payload any) {
+		p, _ := json.Marshal(api.EventPushParams{Event: api.Event{
+			StreamID: "session:ses-1", Type: typ, Payload: mustJSON(payload),
+		}})
+		tl.onNotify("event.push", p, resub)
+	}
+
+	push("tool_call", api.ToolCall{ToolCallID: "t1", Name: "edit_buffer", RawInput: mustJSON(map[string]string{"uri": "file:///repo/a.go"})})
+	card := <-out // the coalescer's tool-call card
+	// The initial embedded chip must NOT be an OOB swap, or htmx drops it when the
+	// card is appended, leaving later status updates with no target.
+	if strings.Contains(card, "hx-swap-oob") {
+		t.Errorf("initial tool card chip must not carry hx-swap-oob: %q", card)
+	}
+	if !strings.Contains(card, `id="tcs-t1"`) {
+		t.Errorf("initial card missing the status target: %q", card)
+	}
+
+	tools := tl.ToolCalls()
+	if len(tools) != 1 || tools[0].Name != "edit_buffer" || tools[0].Kind != "edit" {
+		t.Fatalf("tools = %+v", tools)
+	}
+	if tools[0].Arg != "/repo/a.go" || tools[0].Status != "running" {
+		t.Errorf("tool arg/status = %q/%q", tools[0].Arg, tools[0].Status)
+	}
+
+	// A status update sets the ref status and pushes an OOB status swap.
+	push("tool_call_update", api.ToolCallUpdate{ToolCallID: "t1", Status: "completed"})
+	select {
+	case frame := <-out:
+		if !strings.Contains(frame, `id="tcs-t1"`) || !strings.Contains(frame, "completed") || !strings.Contains(frame, "hx-swap-oob") {
+			t.Errorf("status OOB frame wrong: %q", frame)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("tool_call_update did not broadcast a status swap")
+	}
+	if tl.ToolCalls()[0].Status != "completed" {
+		t.Errorf("status not updated: %+v", tl.ToolCalls())
+	}
+
+	// Switching sessions clears the tool list.
+	tl.setStream(api.SessionInfo{SessionID: "ses-2", StreamID: "session:ses-2"}, "e1")
+	if len(tl.ToolCalls()) != 0 {
+		t.Errorf("tools not reset on switch: %+v", tl.ToolCalls())
 	}
 }
 

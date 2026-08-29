@@ -92,8 +92,78 @@ body {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 240px 1fr 240px;
 }
+.rail.jump { border-right: none; border-left: 1px solid var(--line); }
+.jump-inner { display: flex; flex-direction: column; }
+.jump-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 13px;
+  border: none;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--ink-dim);
+  cursor: pointer;
+  font: inherit;
+}
+.jump-row:hover { background: var(--row-hover, #212a3a); border-left-color: var(--teal-dim); }
+.jr-top { display: flex; align-items: center; gap: 8px; }
+.jr-name { font-size: 12px; color: var(--teal); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jr-arg { font-size: 10.5px; color: var(--ink-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Timeline filter tabs */
+.timeline-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.tl-filter {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--line-soft, #1e2732);
+}
+.tl-filter button {
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink-mut);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.tl-filter button:hover { color: var(--ink-dim); }
+.tl-filter button.on { color: var(--ink); border-bottom-color: var(--teal); }
+/* Filter: hide blocks that don't match the active tab (data-kind on each .tl) */
+.timeline-pane.filter-tool .tl:not([data-kind="tool"]):not([data-kind="edit"]),
+.timeline-pane.filter-tool .tl-divider {
+  display: none;
+}
+.timeline-pane.filter-edit .tl:not([data-kind="edit"]),
+.timeline-pane.filter-edit .tl-divider {
+  display: none;
+}
+
+/* Tool-call card */
+.tl-tool { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; font-size: 12.5px; }
+.tl-fn { color: var(--teal); font-weight: 500; }
+.tl.kind-edit .tl-fn { color: #f2d79a; }
+.tl-arg { color: var(--ink-mut); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-tstat {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 20px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.ts-run { color: #b9d6ff; background: rgba(74, 158, 255, 0.10); border-color: rgba(74, 158, 255, 0.30); }
+.ts-ok { color: #a6e0af; background: rgba(75, 184, 90, 0.10); border-color: rgba(75, 184, 90, 0.28); }
+.ts-fail { color: #f7a7a9; background: rgba(247, 103, 107, 0.10); border-color: rgba(247, 103, 107, 0.30); }
+.tl.kind-edit .tl-node { border-color: #e3b341; }
 .rail {
   min-height: 0;
   overflow-y: auto;

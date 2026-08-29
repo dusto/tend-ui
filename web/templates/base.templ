@@ -1,6 +1,10 @@
 package templates
 
-import "github.com/dusto/tend/api"
+import (
+	"github.com/dusto/tend/api"
+
+	"github.com/dusto/tend-ui/internal/session"
+)
 
 // Base is the HTML document shell. tokenBase is the per-run URL prefix
 // ("/<token>/") set as <base href> so every relative asset link resolves under
@@ -28,7 +32,7 @@ templ Base(title, tokenBase string) {
 // follow) beside the focused session's header and live timeline. Inline
 // artifacts land in a later bead; the raw workspace feed is still served at
 // /events.
-templ Shell(tokenBase string, sessions []api.SessionInfo, currentID api.SessionID, header SessionHeaderData) {
+templ Shell(tokenBase string, sessions []api.SessionInfo, currentID api.SessionID, header SessionHeaderData, tools []session.ToolRef) {
 	@Base("tend-ui", tokenBase) {
 		<header class="titlebar">
 			<span class="glyph">t</span>
@@ -42,10 +46,20 @@ templ Shell(tokenBase string, sessions []api.SessionInfo, currentID api.SessionI
 			</aside>
 			<main class="body">
 				@SessionHeader(header.Session, header.Usage, header.Found)
-				<div class="log-wrap" hx-ext="sse" sse-connect="timeline">
-					@TimelinePanel()
+				<div class="timeline-pane" x-data="{ filter: 'all' }" :class="'filter-' + filter">
+					<div class="tl-filter">
+						<button type="button" :class="{ on: filter === 'all' }" @click="filter = 'all'">All</button>
+						<button type="button" :class="{ on: filter === 'tool' }" @click="filter = 'tool'">Tool calls</button>
+						<button type="button" :class="{ on: filter === 'edit' }" @click="filter = 'edit'">Edits</button>
+					</div>
+					<div class="log-wrap" hx-ext="sse" sse-connect="timeline">
+						@TimelinePanel()
+					</div>
 				</div>
 			</main>
+			<aside class="rail jump">
+				@JumpIndex(tools)
+			</aside>
 		</div>
 	}
 }

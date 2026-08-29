@@ -8,7 +8,11 @@ package templates
 import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
-import "github.com/dusto/tend/api"
+import (
+	"github.com/dusto/tend/api"
+
+	"github.com/dusto/tend-ui/internal/session"
+)
 
 // Base is the HTML document shell. tokenBase is the per-run URL prefix
 // ("/<token>/") set as <base href> so every relative asset link resolves under
@@ -41,7 +45,7 @@ func Base(title, tokenBase string) templ.Component {
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(title)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `base.templ`, Line: 14, Col: 17}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `base.templ`, Line: 18, Col: 17}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
@@ -54,7 +58,7 @@ func Base(title, tokenBase string) templ.Component {
 		var templ_7745c5c3_Var3 string
 		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.ResolveAttributeValue(tokenBase)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `base.templ`, Line: 15, Col: 25}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `base.templ`, Line: 19, Col: 25}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ_7745c5c3_Var3)
 		if templ_7745c5c3_Err != nil {
@@ -80,7 +84,7 @@ func Base(title, tokenBase string) templ.Component {
 // follow) beside the focused session's header and live timeline. Inline
 // artifacts land in a later bead; the raw workspace feed is still served at
 // /events.
-func Shell(tokenBase string, sessions []api.SessionInfo, currentID api.SessionID, header SessionHeaderData) templ.Component {
+func Shell(tokenBase string, sessions []api.SessionInfo, currentID api.SessionID, header SessionHeaderData, tools []session.ToolRef) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -129,7 +133,7 @@ func Shell(tokenBase string, sessions []api.SessionInfo, currentID api.SessionID
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<div class=\"log-wrap\" hx-ext=\"sse\" sse-connect=\"timeline\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<div class=\"timeline-pane\" x-data=\"{ filter: 'all' }\" :class=\"'filter-' + filter\"><div class=\"tl-filter\"><button type=\"button\" :class=\"{ on: filter === 'all' }\" @click=\"filter = 'all'\">All</button> <button type=\"button\" :class=\"{ on: filter === 'tool' }\" @click=\"filter = 'tool'\">Tool calls</button> <button type=\"button\" :class=\"{ on: filter === 'edit' }\" @click=\"filter = 'edit'\">Edits</button></div><div class=\"log-wrap\" hx-ext=\"sse\" sse-connect=\"timeline\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -137,7 +141,15 @@ func Shell(tokenBase string, sessions []api.SessionInfo, currentID api.SessionID
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</div></main></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</div></div></main><aside class=\"rail jump\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = JumpIndex(tools).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</aside></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -175,7 +187,7 @@ func TimelinePanel() templ.Component {
 			templ_7745c5c3_Var6 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<div id=\"timeline\" class=\"timeline\" sse-swap=\"item\" hx-swap=\"beforeend scroll:bottom\"><div class=\"tl muted\"><div class=\"tl-gutter\"><span class=\"tl-node\"></span></div><div class=\"tl-main\"><div class=\"tl-body dim\">waiting for a session…</div></div></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<div id=\"timeline\" class=\"timeline\" sse-swap=\"item\" hx-swap=\"beforeend scroll:bottom\"><div class=\"tl muted\"><div class=\"tl-gutter\"><span class=\"tl-node\"></span></div><div class=\"tl-main\"><div class=\"tl-body dim\">waiting for a session…</div></div></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -205,56 +217,56 @@ func EventLine(ev api.Event) templ.Component {
 			templ_7745c5c3_Var7 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<div class=\"ev\"><span class=\"ev-time mono\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<div class=\"ev\"><span class=\"ev-time mono\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var8 string
 		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(evTime(ev))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `base.templ`, Line: 68, Col: 41}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `base.templ`, Line: 82, Col: 41}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</span> <span class=\"ev-type\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</span> <span class=\"ev-type\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var9 string
 		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(ev.Type)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `base.templ`, Line: 69, Col: 33}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `base.templ`, Line: 83, Col: 33}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</span> ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</span> ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if evRoot(ev) != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<span class=\"ev-wt mono\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<span class=\"ev-wt mono\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var10 string
 			templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(evRoot(ev))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `base.templ`, Line: 71, Col: 40}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `base.templ`, Line: 85, Col: 40}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "</div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -115,20 +115,30 @@ func (b *Bridge) follow(ctx context.Context) error {
 	}
 }
 
-// subscribe subscribes to stream from the tracked cursor. If resuming fails
-// (e.g. the cursor was compacted away), it falls back to replaying from the
-// start once rather than losing the stream.
+// subscribe subscribes to stream from the tracked cursor. If the cursor was
+// compacted away, it resumes at the daemon-provided summary boundary (older
+// turns arrive as summaries); any other resume failure falls back to a full
+// replay once rather than losing the stream.
 func (b *Bridge) subscribe(ctx context.Context, conn *client.Conn, stream api.StreamID) error {
 	from := b.lastSeq.Load()
 	err := conn.Call(ctx, "events.subscribe",
 		api.EventsSubscribeParams{StreamID: stream, LastSeq: from}, &api.EventsSubscribeResult{})
-	if err != nil && from != 0 {
-		slog.Warn("tend-ui: cursor resume failed, replaying from start", "from_seq", from, "err", err)
-		b.lastSeq.Store(0)
-		err = conn.Call(ctx, "events.subscribe",
-			api.EventsSubscribeParams{StreamID: stream, LastSeq: 0}, &api.EventsSubscribeResult{})
+	if err == nil || from == 0 {
+		return err
 	}
-	return err
+	resume := uint64(0)
+	if e, ok := client.AsError(err); ok && e.Code == api.ErrCursorCompacted {
+		var data api.CursorCompactedData
+		if json.Unmarshal(e.Data, &data) == nil {
+			resume = data.BoundarySeq
+		}
+		slog.Warn("tend-ui: cursor compacted, resuming at boundary", "from_seq", from, "boundary", resume)
+	} else {
+		slog.Warn("tend-ui: cursor resume failed, replaying from start", "from_seq", from, "err", err)
+	}
+	b.lastSeq.Store(resume)
+	return conn.Call(ctx, "events.subscribe",
+		api.EventsSubscribeParams{StreamID: stream, LastSeq: resume}, &api.EventsSubscribeResult{})
 }
 
 // onNotify runs on the connection's read goroutine (see client.Options.OnNotify).

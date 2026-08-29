@@ -13,6 +13,7 @@ import (
 	"github.com/dusto/tend/client"
 
 	"github.com/dusto/tend-ui/internal/bridge"
+	"github.com/dusto/tend-ui/internal/session"
 )
 
 const (
@@ -51,6 +52,10 @@ type Timeline struct {
 	current atomic.Pointer[api.SessionID]
 	// switchCh signals the follow loop to re-pick after a Select.
 	switchCh chan struct{}
+
+	// usage is the followed session's latest token/context accounting, updated
+	// from its stream's usage events (guarded by mu) and read by the header.
+	usage session.Usage
 }
 
 // New returns a Timeline that pushes rendered blocks to hub.
@@ -78,6 +83,13 @@ func (t *Timeline) Current() api.SessionID {
 		return *p
 	}
 	return ""
+}
+
+// Usage returns the followed session's latest token/context accounting.
+func (t *Timeline) Usage() session.Usage {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.usage
 }
 
 // Run connects and follows until ctx is cancelled, reconnecting with a fixed
@@ -195,6 +207,7 @@ func (t *Timeline) setStream(sess api.SessionInfo, epoch string) {
 	t.epoch = epoch
 	t.lastSeq.Store(0)
 	t.coal.reset()
+	t.usage = session.Usage{} // a new session starts with no accounting
 	t.mu.Unlock()
 	t.hub.Broadcast(clearFrame)
 }
@@ -269,12 +282,54 @@ func (t *Timeline) onNotify(method string, params json.RawMessage, resub chan<- 
 			return
 		}
 		t.lastSeq.Store(p.Event.CursorSeq)
+		t.applyUsage(p.Event)
 		t.coal.handle(p.Event)
 		t.mu.Unlock()
 	case "event.subscription_closed":
+		// Only a close for the stream we are currently following should trigger a
+		// re-subscribe. A late close for a stream we switched away from must be
+		// ignored, or it would needlessly re-subscribe (and reconnect) the new one.
+		var p api.SubscriptionClosedParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return
+		}
+		t.mu.Lock()
+		stale := p.StreamID != t.stream
+		t.mu.Unlock()
+		if stale {
+			return
+		}
 		select {
 		case resub <- struct{}{}:
 		default:
+		}
+	}
+}
+
+// applyUsage folds a usage event into t.usage. Called under t.mu (from onNotify),
+// so it may read/write t.usage directly. Non-usage events are ignored.
+func (t *Timeline) applyUsage(ev api.Event) {
+	switch ev.Type {
+	case "agent_context_usage":
+		var p api.AgentContextUsage
+		if json.Unmarshal(ev.Payload, &p) == nil {
+			t.usage.ContextUsed = p.UsedTokens
+			t.usage.ContextWindow = p.WindowTokens
+			t.usage.HasContext = true
+		}
+	case "agent_token_usage":
+		var p api.AgentTokenUsage
+		if json.Unmarshal(ev.Payload, &p) == nil {
+			t.usage.LastInput = p.InputTokens
+			t.usage.LastOutput = p.OutputTokens
+			t.usage.LastTotal = p.TotalTokens
+			t.usage.HasToken = true
+		}
+	case "agent_prompt_usage":
+		var p api.AgentPromptUsage
+		if json.Unmarshal(ev.Payload, &p) == nil {
+			t.usage.PromptApprox = p.TokensApprox
+			t.usage.HasPrompt = true
 		}
 	}
 }

@@ -83,6 +83,67 @@ func TestOnNotifyDropsEventsFromOtherStreams(t *testing.T) {
 	}
 }
 
+func TestUsageAccumulatesAndResetsOnSwitch(t *testing.T) {
+	tl := New("/repo", bridge.NewHub[string]())
+	tl.setStream(api.SessionInfo{SessionID: "ses-1", StreamID: "session:ses-1"}, "e1")
+	resub := make(chan struct{}, 1)
+	push := func(typ string, payload any) {
+		p, _ := json.Marshal(api.EventPushParams{Event: api.Event{
+			StreamID: "session:ses-1", Type: typ, Payload: mustJSON(payload),
+		}})
+		tl.onNotify("event.push", p, resub)
+	}
+
+	push("agent_context_usage", api.AgentContextUsage{UsedTokens: 124800, WindowTokens: 200000})
+	push("agent_token_usage", api.AgentTokenUsage{InputTokens: 8200, OutputTokens: 1100, TotalTokens: 9300})
+	push("agent_token_usage", api.AgentTokenUsage{InputTokens: 500, OutputTokens: 200, TotalTokens: 700})
+	push("agent_prompt_usage", api.AgentPromptUsage{TokensApprox: 6400, Approximate: true})
+
+	u := tl.Usage()
+	if !u.HasContext || u.ContextPercent() != 62 {
+		t.Errorf("context = %+v, want 62%%", u)
+	}
+	// Per-turn tokens are latest-event-wins (the second turn), not a cumulative.
+	if u.LastInput != 500 || u.LastOutput != 200 || u.LastTotal != 700 {
+		t.Errorf("last turn = %d/%d/%d, want 500/200/700", u.LastInput, u.LastOutput, u.LastTotal)
+	}
+	if !u.HasPrompt || u.PromptApprox != 6400 {
+		t.Errorf("prompt = %+v", u)
+	}
+
+	// Switching sessions resets the accounting.
+	tl.setStream(api.SessionInfo{SessionID: "ses-2", StreamID: "session:ses-2"}, "e1")
+	if u := tl.Usage(); u.HasContext || u.HasToken {
+		t.Errorf("usage not reset on switch: %+v", u)
+	}
+}
+
+func TestSubscriptionClosedFiltersByStream(t *testing.T) {
+	tl := New("/repo", bridge.NewHub[string]())
+	tl.setStream(api.SessionInfo{SessionID: "ses-1", StreamID: "session:ses-1"}, "e1")
+	resub := make(chan struct{}, 1)
+	closeOf := func(stream api.StreamID) {
+		p, _ := json.Marshal(api.SubscriptionClosedParams{StreamID: stream, Reason: "overflow"})
+		tl.onNotify("event.subscription_closed", p, resub)
+	}
+
+	// A close for a stream we switched away from must NOT trigger a re-subscribe.
+	closeOf("session:ses-OLD")
+	select {
+	case <-resub:
+		t.Fatal("stale-stream close triggered a re-subscribe")
+	default:
+	}
+
+	// A close for the current stream does.
+	closeOf("session:ses-1")
+	select {
+	case <-resub:
+	default:
+		t.Fatal("current-stream close did not trigger a re-subscribe")
+	}
+}
+
 func mustJSON(v any) []byte {
 	b, err := json.Marshal(v)
 	if err != nil {

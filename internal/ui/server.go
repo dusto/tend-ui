@@ -21,6 +21,7 @@ import (
 	"github.com/dusto/tend/api"
 
 	"github.com/dusto/tend-ui/internal/bridge"
+	"github.com/dusto/tend-ui/internal/session"
 	"github.com/dusto/tend-ui/web"
 	"github.com/dusto/tend-ui/web/templates"
 )
@@ -36,6 +37,7 @@ const sseHeartbeat = 15 * time.Second
 type SessionSurface interface {
 	Select(id api.SessionID)
 	Current() api.SessionID
+	Usage() session.Usage
 }
 
 // Lister returns the workspace's sessions for the rail. *session.Lister
@@ -111,9 +113,10 @@ func NewServer(evHub *bridge.Hub[api.Event], tlHub *bridge.Hub[string], list Lis
 	mux.HandleFunc(prefix+"timeline", func(w http.ResponseWriter, r *http.Request) {
 		serveSSE(w, r, s.tlHub, "item", func(html string) string { return html })
 	})
-	// The session rail (htmx-polled) and selection.
+	// The session rail (htmx-polled) and selection, and the focused-session header.
 	mux.HandleFunc(prefix+"sessions", s.handleSessions)
 	mux.HandleFunc(prefix+"select", s.handleSelect)
+	mux.HandleFunc(prefix+"header", s.handleHeader)
 	// The app shell. Only the exact token root renders it; anything else under
 	// the token that is not an asset is a 404.
 	mux.HandleFunc(prefix, func(w http.ResponseWriter, r *http.Request) {
@@ -123,7 +126,7 @@ func NewServer(evHub *bridge.Hub[api.Event], tlHub *bridge.Hub[string], list Lis
 		}
 		sessions, _ := s.list.List(r.Context())
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = templates.Shell(prefix, sessions, s.tl.Current()).Render(r.Context(), w)
+		_ = templates.Shell(prefix, sessions, s.tl.Current(), s.headerData(sessions)).Render(r.Context(), w)
 	})
 
 	go func() { _ = http.Serve(ln, mux) }()
@@ -141,6 +144,27 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = templates.SessionRail(sessions, s.tl.Current()).Render(r.Context(), w)
+}
+
+// handleHeader renders the focused-session header fragment (htmx polls it to
+// keep provider/model/task/status and usage live).
+func (s *Server) handleHeader(w http.ResponseWriter, r *http.Request) {
+	sessions, _ := s.list.List(r.Context())
+	h := s.headerData(sessions)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = templates.SessionHeader(h.Session, h.Usage, h.Found).Render(r.Context(), w)
+}
+
+// headerData resolves the followed session (by tl.Current) within sessions and
+// pairs it with the timeline's usage. Found is false when nothing is followed.
+func (s *Server) headerData(sessions []api.SessionInfo) templates.SessionHeaderData {
+	current := s.tl.Current()
+	for _, sess := range sessions {
+		if sess.SessionID == current {
+			return templates.SessionHeaderData{Session: sess, Usage: s.tl.Usage(), Found: true}
+		}
+	}
+	return templates.SessionHeaderData{}
 }
 
 // handleSelect switches the timeline to the posted session and returns a fresh,

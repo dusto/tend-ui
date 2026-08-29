@@ -1,0 +1,65 @@
+package templates
+
+import "github.com/dusto/tend/api"
+
+// sessionName is the human-facing name for a session: its label, else its task
+// id, else a short session id.
+func sessionName(s api.SessionInfo) string {
+	if s.Label != "" {
+		return s.Label
+	}
+	if s.Task != nil && s.Task.ID != "" {
+		return s.Task.ID
+	}
+	id := string(s.SessionID)
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}
+
+// SessionRail is the left rail: the workspace's sessions with live status,
+// polled by htmx. currentID marks the session the timeline is following. Picking
+// a row POSTs /select, which switches the timeline and refreshes this rail.
+templ SessionRail(sessions []api.SessionInfo, currentID api.SessionID) {
+	<div id="session-rail" class="rail-inner" hx-get="sessions" hx-trigger="every 3s" hx-swap="outerHTML">
+		<div class="rail-head">
+			<span>Sessions</span>
+			<span class="rail-count mono">{ itoa(len(sessions)) }</span>
+		</div>
+		if len(sessions) == 0 {
+			<div class="rail-empty dim">no sessions in this workspace</div>
+		}
+		for _, s := range sessions {
+			@sessionRow(s, s.SessionID == currentID)
+		}
+	</div>
+}
+
+templ sessionRow(s api.SessionInfo, active bool) {
+	<button
+		class={ "sess", templ.KV("active", active) }
+		hx-post="select"
+		hx-vals={ templ.JSONString(map[string]string{"session": string(s.SessionID)}) }
+		hx-target="#timeline"
+		hx-swap="outerHTML"
+	>
+		<span class="sess-top">
+			<span class="sess-name">{ sessionName(s) }</span>
+			@statusPill(s.Status)
+		</span>
+		<span class="sess-meta mono">
+			<span class="sess-prov">{ string(s.ProviderID) }</span>
+			if s.CurrentModelID != "" {
+				<span>· { s.CurrentModelID }</span>
+			}
+		</span>
+	</button>
+}
+
+templ statusPill(status api.SessionStatus) {
+	<span class={ "pill", "pill-" + statusClass(status) }>
+		<span class="pill-dot"></span>
+		{ statusLabel(status) }
+	</span>
+}

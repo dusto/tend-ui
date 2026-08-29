@@ -88,6 +88,82 @@ body {
   box-shadow: 0 0 0 3px rgba(75, 184, 90, 0.16);
 }
 
+.body-split {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 260px 1fr;
+}
+.rail {
+  min-height: 0;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+  background: var(--panel-2, #12171e);
+}
+.rail-inner { display: flex; flex-direction: column; }
+.rail-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 12px 14px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.9px;
+  text-transform: uppercase;
+  color: var(--ink-mut);
+}
+.rail-count { color: var(--ink-faint); }
+.rail-empty { padding: 8px 14px; font-size: 12px; }
+.sess {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 13px;
+  border: none;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--ink-dim);
+  cursor: pointer;
+  font: inherit;
+}
+.sess:hover { background: var(--row-hover, #212a3a); }
+.sess.active { background: var(--row, #1b2230); border-left-color: var(--teal); }
+.sess.active .sess-name { color: #fff; }
+.sess-top { display: flex; align-items: center; gap: 8px; }
+.sess-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sess-meta { display: flex; gap: 5px; font-size: 10.5px; color: var(--ink-faint); }
+.sess-prov { color: var(--ink-mut); }
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  flex: none;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 20px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.pill-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.pill-running { color: #b9d6ff; background: rgba(74, 158, 255, 0.10); border-color: rgba(74, 158, 255, 0.30); }
+.pill-wait { color: #f2d79a; background: rgba(227, 179, 65, 0.10); border-color: rgba(227, 179, 65, 0.34); }
+.pill-error { color: #f7a7a9; background: rgba(247, 103, 107, 0.10); border-color: rgba(247, 103, 107, 0.30); }
+.pill-idle { color: var(--ink-mut); background: var(--row, #1b2230); border-color: var(--line-soft, #1e2732); }
+.pill-ended { color: var(--ink-faint); background: transparent; border-color: var(--line-soft, #1e2732); }
+
 .body {
   flex: 1;
   min-height: 0;

@@ -16,6 +16,36 @@ import (
 	"github.com/dusto/tend-ui/internal/ui"
 )
 
+// fakeLister returns a fixed session set (or an error) for the rail.
+type fakeLister struct {
+	sessions []api.SessionInfo
+	err      error
+}
+
+func (f *fakeLister) List(context.Context) ([]api.SessionInfo, error) {
+	return f.sessions, f.err
+}
+
+// fakeSurface records Select calls and reports a fixed Current.
+type fakeSurface struct {
+	current  api.SessionID
+	selected api.SessionID
+}
+
+func (f *fakeSurface) Select(id api.SessionID) { f.selected = id }
+func (f *fakeSurface) Current() api.SessionID  { return f.current }
+
+// newTestServer builds a Server with empty hubs and the given rail backing.
+func newTestServer(t *testing.T, list ui.Lister, tl ui.SessionSurface) *ui.Server {
+	t.Helper()
+	s, err := ui.NewServer(bridge.NewHub[api.Event](), bridge.NewHub[string](), list, tl)
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	return s
+}
+
 // get fetches u and returns the status code and body, closing the body itself
 // so callers hold no *http.Response (keeps bodyclose happy).
 func get(t *testing.T, u string) (int, string) {
@@ -30,11 +60,7 @@ func get(t *testing.T, u string) (int, string) {
 }
 
 func TestServerServesShellAndAssets(t *testing.T) {
-	s, err := ui.NewServer(bridge.NewHub[api.Event](), bridge.NewHub[string]())
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
-	}
-	defer func() { _ = s.Close() }()
+	s := newTestServer(t, &fakeLister{}, &fakeSurface{})
 
 	// The app shell renders at the tokenized base.
 	status, body := get(t, s.Base())
@@ -58,11 +84,7 @@ func TestServerServesShellAndAssets(t *testing.T) {
 }
 
 func TestServerTokenGuardsRoot(t *testing.T) {
-	s, err := ui.NewServer(bridge.NewHub[api.Event](), bridge.NewHub[string]())
-	if err != nil {
-		t.Fatalf("NewServer: %v", err)
-	}
-	defer func() { _ = s.Close() }()
+	s := newTestServer(t, &fakeLister{}, &fakeSurface{})
 
 	// A request without the per-run token in the path has no handler → 404.
 	u, _ := url.Parse(s.Base())
@@ -73,9 +95,78 @@ func TestServerTokenGuardsRoot(t *testing.T) {
 	}
 }
 
+func TestSessionsRailRendersAndMarksCurrent(t *testing.T) {
+	list := &fakeLister{sessions: []api.SessionInfo{
+		{SessionID: "ses-1", ProviderID: "claude", Status: api.StatusRunning, Label: "spike"},
+		{SessionID: "ses-2", ProviderID: "codex", Status: api.StatusIdle},
+	}}
+	s := newTestServer(t, list, &fakeSurface{current: "ses-2"})
+
+	status, body := get(t, s.Base()+"sessions")
+	if status != http.StatusOK {
+		t.Fatalf("sessions status = %d", status)
+	}
+	if !strings.Contains(body, "spike") || !strings.Contains(body, "claude") {
+		t.Errorf("rail missing a session: %s", body)
+	}
+	if !strings.Contains(body, "running") {
+		t.Errorf("rail missing status pill: %s", body)
+	}
+	// ses-2 is current → its row carries the active class.
+	if !strings.Contains(body, "active") {
+		t.Errorf("current session not marked active: %s", body)
+	}
+}
+
+// A session id containing JSON metacharacters must be safely escaped in hx-vals
+// (built via templ.JSONString, not string concatenation) — no attribute break,
+// no injection.
+func TestSessionsRailEscapesIDInHXVals(t *testing.T) {
+	nasty := `x"><b> inject`
+	list := &fakeLister{sessions: []api.SessionInfo{
+		{SessionID: api.SessionID(nasty), ProviderID: "claude", Status: api.StatusIdle},
+	}}
+	s := newTestServer(t, list, &fakeSurface{})
+
+	_, body := get(t, s.Base()+"sessions")
+	if !strings.Contains(body, "hx-vals") {
+		t.Fatalf("rail row missing hx-vals: %s", body)
+	}
+	// The raw id must not appear unescaped (that would break out of the attribute
+	// or inject markup); templ.JSONString + attribute escaping neutralize it.
+	if strings.Contains(body, `"session":"`+nasty) {
+		t.Errorf("session id not escaped in hx-vals: %s", body)
+	}
+	if strings.Contains(body, "<b> inject") {
+		t.Errorf("session id broke out as raw markup: %s", body)
+	}
+}
+
+func TestSelectSwitchesTimelineAndReturnsPanel(t *testing.T) {
+	surface := &fakeSurface{}
+	s := newTestServer(t, &fakeLister{}, surface)
+
+	form := strings.NewReader("session=ses-9")
+	req, _ := http.NewRequest(http.MethodPost, s.Base()+"select", form)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST select: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+
+	if surface.selected != "ses-9" {
+		t.Errorf("Select got %q, want ses-9", surface.selected)
+	}
+	if !strings.Contains(string(body), `id="timeline"`) {
+		t.Errorf("select did not return a timeline panel: %s", body)
+	}
+}
+
 func TestEventsSSEStreamsWorkspaceBroadcasts(t *testing.T) {
 	evHub := bridge.NewHub[api.Event]()
-	s, err := ui.NewServer(evHub, bridge.NewHub[string]())
+	s, err := ui.NewServer(evHub, bridge.NewHub[string](), &fakeLister{}, &fakeSurface{})
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -88,7 +179,7 @@ func TestEventsSSEStreamsWorkspaceBroadcasts(t *testing.T) {
 
 func TestTimelineSSEStreamsRenderedBlocks(t *testing.T) {
 	tlHub := bridge.NewHub[string]()
-	s, err := ui.NewServer(bridge.NewHub[api.Event](), tlHub)
+	s, err := ui.NewServer(bridge.NewHub[api.Event](), tlHub, &fakeLister{}, &fakeSurface{})
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}

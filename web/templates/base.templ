@@ -24,10 +24,10 @@ templ Base(title, tokenBase string) {
 	</html>
 }
 
-// Shell is the top-level app frame: a live session timeline (the auto-picked
-// session for the workspace). The session list, header, and inline artifacts
-// land in later beads; the raw workspace feed is still served at /events.
-templ Shell(tokenBase string) {
+// Shell is the top-level app frame: a session rail (pick which session to
+// follow) beside the live timeline. The header and inline artifacts land in
+// later beads; the raw workspace feed is still served at /events.
+templ Shell(tokenBase string, sessions []api.SessionInfo, currentID api.SessionID) {
 	@Base("tend-ui", tokenBase) {
 		<header class="titlebar">
 			<span class="glyph">t</span>
@@ -35,21 +35,33 @@ templ Shell(tokenBase string) {
 			<span class="mono sub">session console</span>
 			<span class="conn"><span class="dot"></span> connected</span>
 		</header>
-		<main class="body">
-			<div class="log-head">
-				<span>Session timeline</span>
-				<span class="mono dim">live</span>
-			</div>
-			<div class="log-wrap" hx-ext="sse" sse-connect="timeline">
-				<div id="timeline" class="timeline" sse-swap="item" hx-swap="beforeend scroll:bottom">
-					<div class="tl muted">
-						<div class="tl-gutter"><span class="tl-node"></span></div>
-						<div class="tl-main"><div class="tl-body dim">waiting for a session…</div></div>
-					</div>
+		<div class="body-split">
+			<aside class="rail">
+				@SessionRail(sessions, currentID)
+			</aside>
+			<main class="body">
+				<div class="log-head">
+					<span>Session timeline</span>
+					<span class="mono dim">live</span>
 				</div>
-			</div>
-		</main>
+				<div class="log-wrap" hx-ext="sse" sse-connect="timeline">
+					@TimelinePanel()
+				</div>
+			</main>
+		</div>
 	}
+}
+
+// TimelinePanel is the SSE-connected timeline container. It is also the swap
+// target when a session is picked (/select returns a fresh, empty panel that
+// reconnects the SSE stream for the newly-selected session).
+templ TimelinePanel() {
+	<div id="timeline" class="timeline" sse-swap="item" hx-swap="beforeend scroll:bottom">
+		<div class="tl muted">
+			<div class="tl-gutter"><span class="tl-node"></span></div>
+			<div class="tl-main"><div class="tl-body dim">waiting for a session…</div></div>
+		</div>
+	</div>
 }
 
 // EventLine renders one workspace event as an SSE-swapped log row.

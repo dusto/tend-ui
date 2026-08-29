@@ -8,6 +8,7 @@ package ui
 
 import (
 	"bufio"
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -28,15 +29,33 @@ import (
 // connection (and any intermediary) from idling out.
 const sseHeartbeat = 15 * time.Second
 
+// SessionSurface is the timeline follower the session rail drives: it lists
+// nothing itself, but the rail's Select switches which session the timeline
+// follows, and Current marks the followed session in the rail. *timeline.Timeline
+// satisfies it.
+type SessionSurface interface {
+	Select(id api.SessionID)
+	Current() api.SessionID
+}
+
+// Lister returns the workspace's sessions for the rail. *session.Lister
+// satisfies it.
+type Lister interface {
+	List(ctx context.Context) ([]api.SessionInfo, error)
+}
+
 // Server is the loopback UI server. Base is the tokenized URL the webview loads.
 // It streams two hubs to the browser: workspace events (the activity feed) and
-// pre-rendered session-timeline blocks.
+// pre-rendered session-timeline blocks; it also serves the session rail and
+// routes selection to the timeline.
 type Server struct {
 	ln    net.Listener
 	token string
 	base  string
 	evHub *bridge.Hub[api.Event]
 	tlHub *bridge.Hub[string]
+	list  Lister
+	tl    SessionSurface
 }
 
 // newToken returns a fresh unguessable per-run token.
@@ -50,8 +69,9 @@ func newToken() (string, error) {
 
 // NewServer starts the loopback server and returns it. evHub carries raw
 // workspace events (the activity feed); tlHub carries pre-rendered session
-// timeline blocks. The caller navigates the webview to Base() and must Close it.
-func NewServer(evHub *bridge.Hub[api.Event], tlHub *bridge.Hub[string]) (*Server, error) {
+// timeline blocks; list backs the session rail and tl receives its selection.
+// The caller navigates the webview to Base() and must Close it.
+func NewServer(evHub *bridge.Hub[api.Event], tlHub *bridge.Hub[string], list Lister, tl SessionSurface) (*Server, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("ui: listen: %w", err)
@@ -75,6 +95,8 @@ func NewServer(evHub *bridge.Hub[api.Event], tlHub *bridge.Hub[string]) (*Server
 		base:  fmt.Sprintf("http://%s%s", ln.Addr().String(), prefix),
 		evHub: evHub,
 		tlHub: tlHub,
+		list:  list,
+		tl:    tl,
 	}
 
 	mux := http.NewServeMux()
@@ -89,6 +111,9 @@ func NewServer(evHub *bridge.Hub[api.Event], tlHub *bridge.Hub[string]) (*Server
 	mux.HandleFunc(prefix+"timeline", func(w http.ResponseWriter, r *http.Request) {
 		serveSSE(w, r, s.tlHub, "item", func(html string) string { return html })
 	})
+	// The session rail (htmx-polled) and selection.
+	mux.HandleFunc(prefix+"sessions", s.handleSessions)
+	mux.HandleFunc(prefix+"select", s.handleSelect)
 	// The app shell. Only the exact token root renders it; anything else under
 	// the token that is not an asset is a 404.
 	mux.HandleFunc(prefix, func(w http.ResponseWriter, r *http.Request) {
@@ -96,12 +121,43 @@ func NewServer(evHub *bridge.Hub[api.Event], tlHub *bridge.Hub[string]) (*Server
 			http.NotFound(w, r)
 			return
 		}
+		sessions, _ := s.list.List(r.Context())
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = templates.Shell(prefix).Render(r.Context(), w)
+		_ = templates.Shell(prefix, sessions, s.tl.Current()).Render(r.Context(), w)
 	})
 
 	go func() { _ = http.Serve(ln, mux) }()
 	return s, nil
+}
+
+// handleSessions renders the session rail fragment (htmx polls this every few
+// seconds to keep status live).
+func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
+	sessions, err := s.list.List(r.Context())
+	if err != nil {
+		// The daemon may be down between polls; render an empty rail rather than an
+		// error so the poll keeps retrying.
+		sessions = nil
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = templates.SessionRail(sessions, s.tl.Current()).Render(r.Context(), w)
+}
+
+// handleSelect switches the timeline to the posted session and returns a fresh,
+// empty timeline panel that reconnects the SSE stream for it.
+func (s *Server) handleSelect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := r.FormValue("session")
+	if id == "" {
+		http.Error(w, "session is required", http.StatusBadRequest)
+		return
+	}
+	s.tl.Select(api.SessionID(id))
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = templates.TimelinePanel().Render(r.Context(), w)
 }
 
 // serveSSE streams a hub to the browser as Server-Sent Events, one `event:

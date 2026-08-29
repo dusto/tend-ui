@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"runtime"
@@ -16,6 +17,7 @@ import (
 	"github.com/dusto/tend/api"
 
 	"github.com/dusto/tend-ui/internal/bridge"
+	"github.com/dusto/tend-ui/internal/session"
 	"github.com/dusto/tend-ui/internal/timeline"
 	"github.com/dusto/tend-ui/internal/ui"
 )
@@ -45,14 +47,18 @@ func run() error {
 	tlHub := bridge.NewHub[string]()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if dir, err := os.Getwd(); err == nil {
-		go bridge.New(dir, evHub).Run(ctx)
-		go timeline.New(dir, tlHub).Run(ctx)
-	} else {
-		log.Printf("tend-ui: no working directory, not following the daemon: %v", err)
-	}
 
-	srv, err := ui.NewServer(evHub, tlHub)
+	dir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolving working directory: %w", err)
+	}
+	tl := timeline.New(dir, tlHub)
+	lister := session.NewLister(dir)
+	defer func() { _ = lister.Close() }()
+	go bridge.New(dir, evHub).Run(ctx)
+	go tl.Run(ctx)
+
+	srv, err := ui.NewServer(evHub, tlHub, lister, tl)
 	if err != nil {
 		return err
 	}

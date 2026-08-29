@@ -135,7 +135,15 @@ func (t *Timeline) follow(ctx context.Context) error {
 				continue
 			}
 		}
+		// On a switch, stop the daemon delivering the old session's stream before
+		// following the new one (a filter in onNotify handles any in-flight frames).
+		prev := t.stream
 		t.setStream(sess, string(ws.DaemonEpoch))
+		if prev != "" && prev != t.stream {
+			if err := conn.Call(ctx, "events.unsubscribe", api.EventsUnsubscribeParams{StreamID: prev}, nil); err != nil {
+				return err
+			}
+		}
 		if err := t.subscribe(ctx, conn); err != nil {
 			return err
 		}
@@ -251,8 +259,16 @@ func (t *Timeline) onNotify(method string, params json.RawMessage, resub chan<- 
 		if err := json.Unmarshal(params, &p); err != nil {
 			return
 		}
-		t.lastSeq.Store(p.Event.CursorSeq)
+		// Only events for the stream we are currently following count. After a
+		// session switch the old subscription is torn down, but frames the daemon
+		// already sent for it can still be in flight; dropping them here keeps them
+		// out of the new session's timeline and out of its cursor.
 		t.mu.Lock()
+		if p.Event.StreamID != t.stream {
+			t.mu.Unlock()
+			return
+		}
+		t.lastSeq.Store(p.Event.CursorSeq)
 		t.coal.handle(p.Event)
 		t.mu.Unlock()
 	case "event.subscription_closed":

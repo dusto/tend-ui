@@ -1,7 +1,9 @@
 package timeline
 
 import (
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/dusto/tend/api"
 
@@ -37,6 +39,56 @@ func TestCurrentReflectsSetStream(t *testing.T) {
 	if tl.Current() != "ses-3" {
 		t.Errorf("Current = %q, want ses-3", tl.Current())
 	}
+}
+
+func TestOnNotifyDropsEventsFromOtherStreams(t *testing.T) {
+	hub := bridge.NewHub[string]()
+	out, cancel := hub.Subscribe()
+	defer cancel()
+	tl := New("/repo", hub)
+	tl.setStream(api.SessionInfo{SessionID: "ses-1", StreamID: "session:ses-1"}, "e1")
+	// Drain the clear frame from the switch to ses-1.
+	<-out
+
+	resub := make(chan struct{}, 1)
+	push := func(stream api.StreamID, cursor uint64, typ string) {
+		p, _ := json.Marshal(api.EventPushParams{Event: api.Event{
+			StreamID: stream, CursorSeq: cursor, Type: typ,
+			Payload: mustJSON(api.AgentError{Message: typ}),
+		}})
+		tl.onNotify("event.push", p, resub)
+	}
+
+	// An event from a DIFFERENT stream (an old subscription's in-flight frame) is
+	// dropped: no block rendered, cursor not advanced.
+	push("session:ses-OLD", 999, "agent_error")
+	select {
+	case b := <-out:
+		t.Fatalf("event from another stream leaked into the timeline: %q", b)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if tl.lastSeq.Load() != 0 {
+		t.Fatalf("cursor advanced to %d from a foreign-stream event", tl.lastSeq.Load())
+	}
+
+	// An event for the current stream is rendered and advances the cursor.
+	push("session:ses-1", 7, "agent_error")
+	select {
+	case <-out:
+	case <-time.After(time.Second):
+		t.Fatal("current-stream event was not rendered")
+	}
+	if tl.lastSeq.Load() != 7 {
+		t.Errorf("cursor = %d, want 7", tl.lastSeq.Load())
+	}
+}
+
+func mustJSON(v any) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return b
 }
 
 func TestSetStreamClearsBrowserOnSwitch(t *testing.T) {

@@ -95,7 +95,7 @@ func (c *coalescer) renderDiscrete(ev api.Event) {
 	case "tool_call":
 		var p api.ToolCall
 		if decode(ev, &p) {
-			c.emit(render(templates.TLToolCall(p.Name)))
+			c.emit(render(templates.TLToolCall(p.ToolCallID, p.Name, argSummary(p.RawInput), toolKind(p.Name))))
 		}
 	case "agent_error":
 		var p api.AgentError

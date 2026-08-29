@@ -1,0 +1,42 @@
+package templates
+
+import "github.com/dusto/tend-ui/internal/session"
+
+// scrollTo scrolls the timeline to a tool call's anchor (used as an onclick
+// handler on jump-index rows).
+script scrollTo(id string) {
+	var el = document.getElementById(id);
+	if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); }
+}
+
+// JumpIndex is the right rail: the followed session's tool calls, in order, as
+// an index INTO the timeline (not a separate view). Clicking a row scrolls to
+// where the tool call ran (its "tc-"+id anchor). htmx polls it so status stays
+// live. It is deliberately a proxy for "things the agent produced" until the
+// daemon exposes an artifact event.
+templ JumpIndex(tools []session.ToolRef) {
+	<div id="jump-index" class="jump-inner" hx-get="jump" hx-trigger="every 2s" hx-swap="outerHTML">
+		<div class="rail-head">
+			<span>Tool calls</span>
+			<span class="rail-count mono">{ itoa(len(tools)) }</span>
+		</div>
+		if len(tools) == 0 {
+			<div class="rail-empty dim">none yet</div>
+		}
+		for _, tc := range tools {
+			<button
+				class="jump-row"
+				type="button"
+				onclick={ scrollTo("tc-" + tc.ID) }
+			>
+				<span class="jr-top">
+					<span class="jr-name mono">{ tc.Name }</span>
+					<span class={ "tl-tstat", "ts-" + statusClass2(tc.Status) }>{ tc.Status }</span>
+				</span>
+				if tc.Arg != "" {
+					<span class="jr-arg mono">{ tc.Arg }</span>
+				}
+			</button>
+		}
+	</div>
+}

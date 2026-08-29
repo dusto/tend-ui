@@ -27,16 +27,18 @@ func (f *fakeLister) List(context.Context) ([]api.SessionInfo, error) {
 	return f.sessions, f.err
 }
 
-// fakeSurface records Select calls and reports a fixed Current + Usage.
+// fakeSurface records Select calls and reports a fixed Current, Usage, and tool list.
 type fakeSurface struct {
 	current  api.SessionID
 	selected api.SessionID
 	usage    session.Usage
+	tools    []session.ToolRef
 }
 
-func (f *fakeSurface) Select(id api.SessionID) { f.selected = id }
-func (f *fakeSurface) Current() api.SessionID  { return f.current }
-func (f *fakeSurface) Usage() session.Usage    { return f.usage }
+func (f *fakeSurface) Select(id api.SessionID)      { f.selected = id }
+func (f *fakeSurface) Current() api.SessionID       { return f.current }
+func (f *fakeSurface) Usage() session.Usage         { return f.usage }
+func (f *fakeSurface) ToolCalls() []session.ToolRef { return f.tools }
 
 // newTestServer builds a Server with empty hubs and the given rail backing.
 func newTestServer(t *testing.T, list ui.Lister, tl ui.SessionSurface) *ui.Server {
@@ -138,6 +140,24 @@ func TestHeaderRendersUsageForCurrentSession(t *testing.T) {
 	for _, want := range []string{"spike", "claude", "sonnet-4.6", "62%", "124,800", "9,300"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("header missing %q: %s", want, body)
+		}
+	}
+}
+
+func TestJumpIndexRendersToolCalls(t *testing.T) {
+	surface := &fakeSurface{tools: []session.ToolRef{
+		{ID: "tc-a", Name: "read_buffer", Kind: "tool", Arg: "/repo/main.go", Status: "completed"},
+		{ID: "tc-b", Name: "edit_buffer", Kind: "edit", Status: "running"},
+	}}
+	s := newTestServer(t, &fakeLister{}, surface)
+
+	status, body := get(t, s.Base()+"jump")
+	if status != http.StatusOK {
+		t.Fatalf("jump status = %d", status)
+	}
+	for _, want := range []string{"read_buffer", "/repo/main.go", "completed", "edit_buffer", "tc-tc-a"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("jump index missing %q: %s", want, body)
 		}
 	}
 }

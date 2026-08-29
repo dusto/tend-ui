@@ -59,16 +59,25 @@ templ TLToolCall(id, name, arg, kind string) {
 				if arg != "" {
 					<span class="tl-arg mono">{ arg }</span>
 				}
-				@TLToolStatus(id, "running")
+				@TLToolStatus(id, "running", false)
 			</div>
 		</div>
 	</div>
 }
 
-// TLToolStatus is the tool call's status chip, swapped out of band on a
-// tool_call_update so the inline card reflects completion without a re-render.
-templ TLToolStatus(id, status string) {
-	<span id={ "tcs-" + id } hx-swap-oob="true" class={ "tl-tstat", "ts-" + statusClass2(status) }>{ status }</span>
+// TLToolStatus is the tool call's status chip. Embedded in the initial card with
+// oob=false (a normal in-place span); rendered again with oob=true for a
+// tool_call_update so htmx swaps just this chip out of band. The initial chip
+// MUST NOT carry hx-swap-oob, or htmx would treat it as an OOB swap when the card
+// is appended (no target yet) and drop it, leaving later updates with no target.
+templ TLToolStatus(id, status string, oob bool) {
+	<span
+		id={ "tcs-" + id }
+		if oob {
+			hx-swap-oob="true"
+		}
+		class={ "tl-tstat", "ts-" + statusClass2(status) }
+	>{ status }</span>
 }
 
 templ TLError(message string) {

@@ -162,7 +162,15 @@ func TestToolTrackingAndStatusUpdate(t *testing.T) {
 	}
 
 	push("tool_call", api.ToolCall{ToolCallID: "t1", Name: "edit_buffer", RawInput: mustJSON(map[string]string{"uri": "file:///repo/a.go"})})
-	<-out // the coalescer's tool-call card
+	card := <-out // the coalescer's tool-call card
+	// The initial embedded chip must NOT be an OOB swap, or htmx drops it when the
+	// card is appended, leaving later status updates with no target.
+	if strings.Contains(card, "hx-swap-oob") {
+		t.Errorf("initial tool card chip must not carry hx-swap-oob: %q", card)
+	}
+	if !strings.Contains(card, `id="tcs-t1"`) {
+		t.Errorf("initial card missing the status target: %q", card)
+	}
 
 	tools := tl.ToolCalls()
 	if len(tools) != 1 || tools[0].Name != "edit_buffer" || tools[0].Kind != "edit" {

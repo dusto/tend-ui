@@ -383,7 +383,7 @@ func (t *Timeline) applyTools(ev api.Event) {
 		}
 		if i, ok := t.toolIdx[p.ToolCallID]; ok && p.Status != "" {
 			t.tools[i].Status = p.Status
-			t.hub.Broadcast(render(templates.TLToolStatus(p.ToolCallID, p.Status)))
+			t.hub.Broadcast(render(templates.TLToolStatus(p.ToolCallID, p.Status, true)))
 		}
 	}
 }

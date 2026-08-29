@@ -117,6 +117,32 @@ func TestUsageAccumulatesAndResetsOnSwitch(t *testing.T) {
 	}
 }
 
+func TestSubscriptionClosedFiltersByStream(t *testing.T) {
+	tl := New("/repo", bridge.NewHub[string]())
+	tl.setStream(api.SessionInfo{SessionID: "ses-1", StreamID: "session:ses-1"}, "e1")
+	resub := make(chan struct{}, 1)
+	closeOf := func(stream api.StreamID) {
+		p, _ := json.Marshal(api.SubscriptionClosedParams{StreamID: stream, Reason: "overflow"})
+		tl.onNotify("event.subscription_closed", p, resub)
+	}
+
+	// A close for a stream we switched away from must NOT trigger a re-subscribe.
+	closeOf("session:ses-OLD")
+	select {
+	case <-resub:
+		t.Fatal("stale-stream close triggered a re-subscribe")
+	default:
+	}
+
+	// A close for the current stream does.
+	closeOf("session:ses-1")
+	select {
+	case <-resub:
+	default:
+		t.Fatal("current-stream close did not trigger a re-subscribe")
+	}
+}
+
 func mustJSON(v any) []byte {
 	b, err := json.Marshal(v)
 	if err != nil {

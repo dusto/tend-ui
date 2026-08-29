@@ -286,6 +286,19 @@ func (t *Timeline) onNotify(method string, params json.RawMessage, resub chan<- 
 		t.coal.handle(p.Event)
 		t.mu.Unlock()
 	case "event.subscription_closed":
+		// Only a close for the stream we are currently following should trigger a
+		// re-subscribe. A late close for a stream we switched away from must be
+		// ignored, or it would needlessly re-subscribe (and reconnect) the new one.
+		var p api.SubscriptionClosedParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return
+		}
+		t.mu.Lock()
+		stale := p.StreamID != t.stream
+		t.mu.Unlock()
+		if stale {
+			return
+		}
 		select {
 		case resub <- struct{}{}:
 		default:

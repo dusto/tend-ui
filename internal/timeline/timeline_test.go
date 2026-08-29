@@ -103,8 +103,9 @@ func TestUsageAccumulatesAndResetsOnSwitch(t *testing.T) {
 	if !u.HasContext || u.ContextPercent() != 62 {
 		t.Errorf("context = %+v, want 62%%", u)
 	}
-	if u.LastTotal != 700 || u.RunningTotal != 10000 {
-		t.Errorf("tokens: last=%d running=%d, want 700 / 10000", u.LastTotal, u.RunningTotal)
+	// Per-turn tokens are latest-event-wins (the second turn), not a cumulative.
+	if u.LastInput != 500 || u.LastOutput != 200 || u.LastTotal != 700 {
+		t.Errorf("last turn = %d/%d/%d, want 500/200/700", u.LastInput, u.LastOutput, u.LastTotal)
 	}
 	if !u.HasPrompt || u.PromptApprox != 6400 {
 		t.Errorf("prompt = %+v", u)
@@ -112,7 +113,7 @@ func TestUsageAccumulatesAndResetsOnSwitch(t *testing.T) {
 
 	// Switching sessions resets the accounting.
 	tl.setStream(api.SessionInfo{SessionID: "ses-2", StreamID: "session:ses-2"}, "e1")
-	if u := tl.Usage(); u.HasContext || u.HasToken || u.RunningTotal != 0 {
+	if u := tl.Usage(); u.HasContext || u.HasToken {
 		t.Errorf("usage not reset on switch: %+v", u)
 	}
 }

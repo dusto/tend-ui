@@ -10,14 +10,15 @@ type Usage struct {
 	ContextWindow int
 	HasContext    bool
 
-	// The most recent turn's token counts (agent_token_usage).
+	// The most recent turn's token counts (agent_token_usage). These are
+	// latest-event-wins, so they stay correct across replay and compaction — unlike
+	// a client-reconstructed session cumulative, which a compacted stream would
+	// under-report and a replay-from-0 fallback would double-count. A true session
+	// total would need a daemon-reported cumulative field.
 	LastInput  int
 	LastOutput int
 	LastTotal  int
 	HasToken   bool
-
-	// RunningTotal is the sum of per-turn totals across the session so far.
-	RunningTotal int
 
 	// PromptApprox is the daemon's approximate token estimate of the last prompt
 	// it composed (agent_prompt_usage) — a heuristic, flagged [approx] in the UI.

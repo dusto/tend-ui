@@ -127,7 +127,7 @@ func TestHeaderRendersUsageForCurrentSession(t *testing.T) {
 	}}
 	surface := &fakeSurface{current: "ses-1", usage: session.Usage{
 		ContextUsed: 124800, ContextWindow: 200000, HasContext: true,
-		LastInput: 8200, LastOutput: 1100, LastTotal: 9300, RunningTotal: 45000, HasToken: true,
+		LastInput: 8200, LastOutput: 1100, LastTotal: 9300, HasToken: true,
 	}}
 	s := newTestServer(t, list, surface)
 
@@ -135,7 +135,7 @@ func TestHeaderRendersUsageForCurrentSession(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("header status = %d", status)
 	}
-	for _, want := range []string{"spike", "claude", "sonnet-4.6", "62%", "124,800", "45,000"} {
+	for _, want := range []string{"spike", "claude", "sonnet-4.6", "62%", "124,800", "9,300"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("header missing %q: %s", want, body)
 		}

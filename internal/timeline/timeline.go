@@ -323,7 +323,6 @@ func (t *Timeline) applyUsage(ev api.Event) {
 			t.usage.LastInput = p.InputTokens
 			t.usage.LastOutput = p.OutputTokens
 			t.usage.LastTotal = p.TotalTokens
-			t.usage.RunningTotal += p.TotalTokens
 			t.usage.HasToken = true
 		}
 	case "agent_prompt_usage":

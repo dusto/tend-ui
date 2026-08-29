@@ -56,8 +56,7 @@ templ usageBar(u session.Usage) {
 			}
 			<div class="usage-stats mono">
 				if u.HasToken {
-					<span class="us"><span class="us-k">turn</span> { thousands(u.LastInput) } in · { thousands(u.LastOutput) } out</span>
-					<span class="us"><span class="us-k">session</span> { thousands(u.RunningTotal) } tok</span>
+					<span class="us"><span class="us-k">last turn</span> { thousands(u.LastInput) } in · { thousands(u.LastOutput) } out · { thousands(u.LastTotal) } total</span>
 				}
 				if u.HasPrompt {
 					<span class="us"><span class="us-k">prompt</span> ~{ thousands(u.PromptApprox) } <span class="approx">[approx]</span></span>

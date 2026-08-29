@@ -13,6 +13,7 @@ import (
 	"github.com/dusto/tend/api"
 
 	"github.com/dusto/tend-ui/internal/bridge"
+	"github.com/dusto/tend-ui/internal/session"
 	"github.com/dusto/tend-ui/internal/ui"
 )
 
@@ -26,14 +27,16 @@ func (f *fakeLister) List(context.Context) ([]api.SessionInfo, error) {
 	return f.sessions, f.err
 }
 
-// fakeSurface records Select calls and reports a fixed Current.
+// fakeSurface records Select calls and reports a fixed Current + Usage.
 type fakeSurface struct {
 	current  api.SessionID
 	selected api.SessionID
+	usage    session.Usage
 }
 
 func (f *fakeSurface) Select(id api.SessionID) { f.selected = id }
 func (f *fakeSurface) Current() api.SessionID  { return f.current }
+func (f *fakeSurface) Usage() session.Usage    { return f.usage }
 
 // newTestServer builds a Server with empty hubs and the given rail backing.
 func newTestServer(t *testing.T, list ui.Lister, tl ui.SessionSurface) *ui.Server {
@@ -115,6 +118,35 @@ func TestSessionsRailRendersAndMarksCurrent(t *testing.T) {
 	// ses-2 is current → its row carries the active class.
 	if !strings.Contains(body, "active") {
 		t.Errorf("current session not marked active: %s", body)
+	}
+}
+
+func TestHeaderRendersUsageForCurrentSession(t *testing.T) {
+	list := &fakeLister{sessions: []api.SessionInfo{
+		{SessionID: "ses-1", ProviderID: "claude", CurrentModelID: "sonnet-4.6", Status: api.StatusRunning, Label: "spike"},
+	}}
+	surface := &fakeSurface{current: "ses-1", usage: session.Usage{
+		ContextUsed: 124800, ContextWindow: 200000, HasContext: true,
+		LastInput: 8200, LastOutput: 1100, LastTotal: 9300, RunningTotal: 45000, HasToken: true,
+	}}
+	s := newTestServer(t, list, surface)
+
+	status, body := get(t, s.Base()+"header")
+	if status != http.StatusOK {
+		t.Fatalf("header status = %d", status)
+	}
+	for _, want := range []string{"spike", "claude", "sonnet-4.6", "62%", "124,800", "45,000"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("header missing %q: %s", want, body)
+		}
+	}
+}
+
+func TestHeaderEmptyWhenNoCurrentSession(t *testing.T) {
+	s := newTestServer(t, &fakeLister{}, &fakeSurface{current: ""})
+	_, body := get(t, s.Base()+"header")
+	if !strings.Contains(body, "No session selected") {
+		t.Errorf("expected empty-state header: %s", body)
 	}
 }
 

@@ -25,9 +25,10 @@ templ Base(title, tokenBase string) {
 }
 
 // Shell is the top-level app frame: a session rail (pick which session to
-// follow) beside the live timeline. The header and inline artifacts land in
-// later beads; the raw workspace feed is still served at /events.
-templ Shell(tokenBase string, sessions []api.SessionInfo, currentID api.SessionID) {
+// follow) beside the focused session's header and live timeline. Inline
+// artifacts land in a later bead; the raw workspace feed is still served at
+// /events.
+templ Shell(tokenBase string, sessions []api.SessionInfo, currentID api.SessionID, header SessionHeaderData) {
 	@Base("tend-ui", tokenBase) {
 		<header class="titlebar">
 			<span class="glyph">t</span>
@@ -40,10 +41,7 @@ templ Shell(tokenBase string, sessions []api.SessionInfo, currentID api.SessionI
 				@SessionRail(sessions, currentID)
 			</aside>
 			<main class="body">
-				<div class="log-head">
-					<span>Session timeline</span>
-					<span class="mono dim">live</span>
-				</div>
+				@SessionHeader(header.Session, header.Usage, header.Found)
 				<div class="log-wrap" hx-ext="sse" sse-connect="timeline">
 					@TimelinePanel()
 				</div>

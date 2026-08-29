@@ -1,0 +1,68 @@
+package templates
+
+import (
+	"strconv"
+
+	"github.com/dusto/tend/api"
+
+	"github.com/dusto/tend-ui/internal/session"
+)
+
+// SessionHeader is the focused session's header: provider/model/task/status and
+// its token/context usage. htmx polls /header to keep the numbers live. found is
+// false when no session is followed (empty state).
+templ SessionHeader(s api.SessionInfo, u session.Usage, found bool) {
+	<div id="session-header" class="sess-header" hx-get="header" hx-trigger="every 2s" hx-swap="outerHTML">
+		if !found {
+			<div class="sh-empty dim">No session selected — pick one from the rail.</div>
+		} else {
+			<div class="sh-top">
+				<div class="sh-title">
+					<span class="sh-name">{ sessionName(s) }</span>
+					@statusPill(s.Status)
+				</div>
+				<div class="sh-meta mono">
+					<span>{ string(s.ProviderID) }</span>
+					if s.CurrentModelID != "" {
+						<span class="sep">·</span><span>{ s.CurrentModelID }</span>
+					}
+					if s.Task != nil && s.Task.ID != "" {
+						<span class="sep">·</span><span class="sh-task">{ s.Task.ID }</span>
+					}
+				</div>
+			</div>
+			@usageBar(u)
+		}
+	</div>
+}
+
+templ usageBar(u session.Usage) {
+	if !u.HasContext && !u.HasToken && !u.HasPrompt {
+		<div class="sh-usage dim mono">no usage reported yet</div>
+	} else {
+		<div class="sh-usage">
+			if u.HasContext {
+				<div class="usage-meter">
+					<div class="um-lab mono">
+						<span>context</span>
+						<span class="um-val">{ contextLabel(u) }</span>
+					</div>
+					if u.ContextPercent() >= 0 {
+						<div class="um-track">
+							<div class={ "um-fill", templ.KV("warn", u.ContextPercent() >= 80) } style={ "width:" + strconv.Itoa(clampPct(u.ContextPercent())) + "%" }></div>
+						</div>
+					}
+				</div>
+			}
+			<div class="usage-stats mono">
+				if u.HasToken {
+					<span class="us"><span class="us-k">turn</span> { thousands(u.LastInput) } in · { thousands(u.LastOutput) } out</span>
+					<span class="us"><span class="us-k">session</span> { thousands(u.RunningTotal) } tok</span>
+				}
+				if u.HasPrompt {
+					<span class="us"><span class="us-k">prompt</span> ~{ thousands(u.PromptApprox) } <span class="approx">[approx]</span></span>
+				}
+			</div>
+		</div>
+	}
+}

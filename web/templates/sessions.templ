@@ -40,7 +40,7 @@ templ sessionRow(s api.SessionInfo, active bool) {
 	<button
 		class={ "sess", templ.KV("active", active) }
 		hx-post="select"
-		hx-vals={ `{"session":"` + string(s.SessionID) + `"}` }
+		hx-vals={ templ.JSONString(map[string]string{"session": string(s.SessionID)}) }
 		hx-target="#timeline"
 		hx-swap="outerHTML"
 	>

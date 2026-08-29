@@ -118,6 +118,30 @@ func TestSessionsRailRendersAndMarksCurrent(t *testing.T) {
 	}
 }
 
+// A session id containing JSON metacharacters must be safely escaped in hx-vals
+// (built via templ.JSONString, not string concatenation) — no attribute break,
+// no injection.
+func TestSessionsRailEscapesIDInHXVals(t *testing.T) {
+	nasty := `x"><b> inject`
+	list := &fakeLister{sessions: []api.SessionInfo{
+		{SessionID: api.SessionID(nasty), ProviderID: "claude", Status: api.StatusIdle},
+	}}
+	s := newTestServer(t, list, &fakeSurface{})
+
+	_, body := get(t, s.Base()+"sessions")
+	if !strings.Contains(body, "hx-vals") {
+		t.Fatalf("rail row missing hx-vals: %s", body)
+	}
+	// The raw id must not appear unescaped (that would break out of the attribute
+	// or inject markup); templ.JSONString + attribute escaping neutralize it.
+	if strings.Contains(body, `"session":"`+nasty) {
+		t.Errorf("session id not escaped in hx-vals: %s", body)
+	}
+	if strings.Contains(body, "<b> inject") {
+		t.Errorf("session id broke out as raw markup: %s", body)
+	}
+}
+
 func TestSelectSwitchesTimelineAndReturnsPanel(t *testing.T) {
 	surface := &fakeSurface{}
 	s := newTestServer(t, &fakeLister{}, surface)

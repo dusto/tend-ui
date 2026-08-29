@@ -40,10 +40,16 @@ func (f *fakeSurface) Current() api.SessionID       { return f.current }
 func (f *fakeSurface) Usage() session.Usage         { return f.usage }
 func (f *fakeSurface) ToolCalls() []session.ToolRef { return f.tools }
 
-// newTestServer builds a Server with empty hubs and the given rail backing.
+// fakeConn reports a fixed connection state.
+type fakeConn struct{ up bool }
+
+func (f fakeConn) Connected() bool { return f.up }
+
+// newTestServer builds a Server with empty hubs and the given rail backing
+// (connected by default).
 func newTestServer(t *testing.T, list ui.Lister, tl ui.SessionSurface) *ui.Server {
 	t.Helper()
-	s, err := ui.NewServer(bridge.NewHub[api.Event](), bridge.NewHub[string](), list, tl)
+	s, err := ui.NewServer(bridge.NewHub[api.Event](), bridge.NewHub[string](), list, tl, fakeConn{up: true})
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -170,6 +176,28 @@ func TestHeaderEmptyWhenNoCurrentSession(t *testing.T) {
 	}
 }
 
+// The connection indicator reflects the real connection state, not a hardcoded
+// value: connected renders green, disconnected renders the "down" state.
+func TestStatusReflectsConnectionState(t *testing.T) {
+	up, err := ui.NewServer(bridge.NewHub[api.Event](), bridge.NewHub[string](), &fakeLister{}, &fakeSurface{}, fakeConn{up: true})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	defer func() { _ = up.Close() }()
+	if _, body := get(t, up.Base()+"status"); strings.Contains(body, "down") || !strings.Contains(body, "connected") {
+		t.Errorf("connected status wrong: %s", body)
+	}
+
+	down, err := ui.NewServer(bridge.NewHub[api.Event](), bridge.NewHub[string](), &fakeLister{}, &fakeSurface{}, fakeConn{up: false})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	defer func() { _ = down.Close() }()
+	if _, body := get(t, down.Base()+"status"); !strings.Contains(body, "down") || !strings.Contains(body, "reconnecting") {
+		t.Errorf("disconnected status wrong: %s", body)
+	}
+}
+
 // A session id containing JSON metacharacters must be safely escaped in hx-vals
 // (built via templ.JSONString, not string concatenation) — no attribute break,
 // no injection.
@@ -218,7 +246,7 @@ func TestSelectSwitchesTimelineAndReturnsPanel(t *testing.T) {
 
 func TestEventsSSEStreamsWorkspaceBroadcasts(t *testing.T) {
 	evHub := bridge.NewHub[api.Event]()
-	s, err := ui.NewServer(evHub, bridge.NewHub[string](), &fakeLister{}, &fakeSurface{})
+	s, err := ui.NewServer(evHub, bridge.NewHub[string](), &fakeLister{}, &fakeSurface{}, fakeConn{up: true})
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -231,7 +259,7 @@ func TestEventsSSEStreamsWorkspaceBroadcasts(t *testing.T) {
 
 func TestTimelineSSEStreamsRenderedBlocks(t *testing.T) {
 	tlHub := bridge.NewHub[string]()
-	s, err := ui.NewServer(bridge.NewHub[api.Event](), tlHub, &fakeLister{}, &fakeSurface{})
+	s, err := ui.NewServer(bridge.NewHub[api.Event](), tlHub, &fakeLister{}, &fakeSurface{}, fakeConn{up: true})
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}

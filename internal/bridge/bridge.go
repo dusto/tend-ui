@@ -39,7 +39,15 @@ type Bridge struct {
 	// epoch is the daemon epoch the cursor belongs to; a restart (new epoch)
 	// invalidates per-stream seqs. Only touched on the Run goroutine.
 	epoch string
+
+	// connected reports whether the bridge currently holds a live, subscribed
+	// daemon connection — the authoritative "is the daemon reachable" signal the
+	// titlebar shows (all followers share one socket, so the bridge stands for it).
+	connected atomic.Bool
 }
+
+// Connected reports whether the bridge currently has a live daemon connection.
+func (b *Bridge) Connected() bool { return b.connected.Load() }
 
 // New returns a Bridge that follows the workspace for dir.
 func New(dir string, hub *Hub[api.Event]) *Bridge {
@@ -94,6 +102,10 @@ func (b *Bridge) follow(ctx context.Context) error {
 	if err := b.subscribe(ctx, conn, stream); err != nil {
 		return err
 	}
+	// Live and subscribed — mark connected until this follow returns (the defer
+	// covers every exit: ctx done, conn closed, or a re-subscribe error).
+	b.connected.Store(true)
+	defer b.connected.Store(false)
 	slog.Info("tend-ui: following workspace stream",
 		"workspace", ws.WorkspaceID, "root", ws.WorktreeRoot, "from_seq", b.lastSeq.Load())
 

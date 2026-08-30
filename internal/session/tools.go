@@ -14,6 +14,10 @@ type ToolRef struct {
 	Kind string
 	// Arg is a short human-facing summary of the input (e.g. the file uri), or "".
 	Arg string
+	// Full is the pretty-printed full tool input, shown in the card's expandable
+	// "input" detail. Empty until the provider's tool_call_update refines it (the
+	// initial tool_call often carries an empty input).
+	Full string
 	// Status is the last reported tool status: "running" until a tool_call_update
 	// reports "completed"/"failed"/…
 	Status string

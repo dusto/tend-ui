@@ -24,9 +24,47 @@ func approvalTitle(a api.ApprovalSummary) string {
 		return "Allow filesystem access?"
 	case "code_action":
 		return "Apply code action?"
+	case "agent_tool":
+		return "Allow tool call?"
 	default:
 		return "Approve " + a.Kind + "?"
 	}
+}
+
+// approvalToolName is the provider-native tool's title for an agent_tool
+// approval (e.g. "Write file"), or "" for another kind.
+func approvalToolName(a api.ApprovalSummary) string {
+	if d := approvalDetail(a); d.AgentTool != nil {
+		return d.AgentTool.Title
+	}
+	return ""
+}
+
+// approvalToolInput is the pretty-printed input for an agent_tool approval, so a
+// client can review the exact call the agent's own tool is about to make. "" for
+// another kind or an empty input.
+func approvalToolInput(a api.ApprovalSummary) string {
+	if d := approvalDetail(a); d.AgentTool != nil {
+		return prettyJSON(d.AgentTool.RawInput)
+	}
+	return ""
+}
+
+// prettyJSON renders raw JSON indented for display, falling back to the trimmed
+// raw text when it does not parse and "" when empty.
+func prettyJSON(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return strings.TrimSpace(string(raw))
+	}
+	out, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return strings.TrimSpace(string(raw))
+	}
+	return string(out)
 }
 
 // approvalDetail decodes an approval's Detail into the typed view. Returns the

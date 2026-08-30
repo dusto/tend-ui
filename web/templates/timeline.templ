@@ -57,19 +57,40 @@ templ TLToolCall(id, name, arg, kind, full string) {
 				}
 			</div>
 			<div class="tl-tool">
-				<span class="tl-fn mono">{ name }</span>
-				if arg != "" {
-					<span class="tl-arg mono">{ arg }</span>
-				}
+				<span id={ "tcn-" + id } class="tl-fn mono">{ name }</span>
+				<span id={ "tca-" + id } class="tl-arg mono">{ arg }</span>
 				@TLToolStatus(id, "running", false)
 			</div>
-			if full != "" {
-				<details class="tl-tool-detail">
-					<summary>input</summary>
-					<pre class="tl-tool-input mono">{ full }</pre>
-				</details>
-			}
+			<div id={ "tcd-" + id } class="tl-tool-detail-wrap">
+				@toolDetail(full)
+			</div>
 		</div>
+	</div>
+}
+
+// toolDetail is the expandable "input" block, empty until the tool's input is
+// known. Rendered inside the refinable "tcd-"+id wrapper so a later refine can
+// swap it in place.
+templ toolDetail(full string) {
+	if full != "" {
+		<details class="tl-tool-detail">
+			<summary>input</summary>
+			<pre class="tl-tool-input mono">{ full }</pre>
+		</details>
+	}
+}
+
+// TLToolRefine swaps a tool card's refinable parts out of band: providers open a
+// tool_call with an empty input and refine its title/input in a later
+// tool_call_update (see api.ToolCallUpdate). The name ("tcn-"), arg ("tca-"), and
+// input-detail wrapper ("tcd-") carry stable ids and are ALWAYS present in the
+// initial card (even when empty), so these OOB swaps have a target — an
+// only-on-refine element would have nothing to replace.
+templ TLToolRefine(id, name, arg, full string) {
+	<span id={ "tcn-" + id } class="tl-fn mono" hx-swap-oob="true">{ name }</span>
+	<span id={ "tca-" + id } class="tl-arg mono" hx-swap-oob="true">{ arg }</span>
+	<div id={ "tcd-" + id } class="tl-tool-detail-wrap" hx-swap-oob="true">
+		@toolDetail(full)
 	</div>
 }
 

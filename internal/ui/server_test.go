@@ -48,15 +48,17 @@ func (f fakeConn) Connected() bool { return f.up }
 
 // fakeCmd records the interactive-control calls and serves a fixed approval set.
 type fakeCmd struct {
-	approvals  []api.ApprovalSummary
-	responded  map[api.ApprovalID]bool
-	promptedTo api.SessionID
-	promptText string
-	cancelled  api.SessionID
-	stopped    api.SessionID
+	approvals     []api.ApprovalSummary
+	approvalsSess []api.SessionID // session ids passed to Approvals, in order
+	responded     map[api.ApprovalID]bool
+	promptedTo    api.SessionID
+	promptText    string
+	cancelled     api.SessionID
+	stopped       api.SessionID
 }
 
-func (f *fakeCmd) Approvals(context.Context, api.SessionID) ([]api.ApprovalSummary, error) {
+func (f *fakeCmd) Approvals(_ context.Context, s api.SessionID) ([]api.ApprovalSummary, error) {
+	f.approvalsSess = append(f.approvalsSess, s)
 	return f.approvals, nil
 }
 func (f *fakeCmd) Respond(_ context.Context, id api.ApprovalID, approved bool) error {
@@ -297,6 +299,33 @@ func TestRespondNoOpWithoutFocusedSession(t *testing.T) {
 	postForm(t, s.Base()+"approve", "approval_id=ap-1")
 	if len(ctl.responded) != 0 {
 		t.Errorf("responded with no focused session: %+v", ctl.responded)
+	}
+	// And it must never list approvals with an empty session id (which would list
+	// the whole workspace and leak details from unfocused sessions).
+	for _, sess := range ctl.approvalsSess {
+		if sess == "" {
+			t.Errorf("Approvals called with empty session id: %+v", ctl.approvalsSess)
+		}
+	}
+}
+
+// TestApprovalsPanelNoFocusDoesNotListWorkspace guards the render paths: with no
+// focused session the approvals panel must be empty WITHOUT calling approval.list
+// (an empty id lists every workspace approval, leaking unfocused sessions).
+func TestApprovalsPanelNoFocusDoesNotListWorkspace(t *testing.T) {
+	ctl := &fakeCmd{approvals: []api.ApprovalSummary{{ApprovalID: "ap-x", SessionID: "ses-other"}}}
+	s := newTestServerWith(t, &fakeLister{}, &fakeSurface{current: ""}, ctl)
+	status, body := get(t, s.Base()+"approvals")
+	if status != http.StatusOK {
+		t.Fatalf("approvals status = %d", status)
+	}
+	if strings.Contains(body, "ap-x") || strings.Contains(body, "ses-other") {
+		t.Errorf("approvals panel leaked an unfocused session's approval:\n%s", body)
+	}
+	for _, sess := range ctl.approvalsSess {
+		if sess == "" {
+			t.Errorf("Approvals called with empty session id: %+v", ctl.approvalsSess)
+		}
 	}
 }
 

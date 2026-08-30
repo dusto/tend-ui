@@ -157,3 +157,64 @@ func TestCoalesceIgnoresUnhandledTypes(t *testing.T) {
 		t.Fatalf("want just the flushed message, got %v", out)
 	}
 }
+
+func TestArgSummaryKnownKeys(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"file uri", `{"uri":"file:///repo/main.go"}`, "/repo/main.go"},
+		{"file_path", `{"file_path":"/repo/x.go"}`, "/repo/x.go"},
+		{"shell command", `{"command":"go test ./..."}`, "go test ./..."},
+		{"multiline command collapses", `{"command":"go build\n  ./..."}`, "go build ./..."},
+		{"search pattern", `{"pattern":"func main"}`, "func main"},
+		{"fetch url", `{"url":"https://example.com"}`, "https://example.com"},
+		{"generic fallback key=value", `{"weird_field":"hello"}`, "weird_field=hello"},
+		{"scalar bool", `{"recursive":true}`, "recursive=true"},
+		{"empty", ``, ""},
+		{"no scalar", `{"nested":{"a":1}}`, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := argSummary(json.RawMessage(tc.raw))
+			if got != tc.want {
+				t.Errorf("argSummary(%s) = %q, want %q", tc.raw, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestArgSummaryClipsLongValue(t *testing.T) {
+	long := strings.Repeat("x", 300)
+	got := argSummary(json.RawMessage(`{"command":"` + long + `"}`))
+	if !strings.HasSuffix(got, "…") || len([]rune(got)) != 141 {
+		t.Errorf("expected clipped 140+ellipsis, got len=%d suffix=%q", len([]rune(got)), got)
+	}
+}
+
+func TestArgFullPrettyPrints(t *testing.T) {
+	got := argFull(json.RawMessage(`{"command":"ls","recursive":true}`))
+	if !strings.Contains(got, "\"command\": \"ls\"") || !strings.Contains(got, "\n") {
+		t.Errorf("argFull did not pretty-print: %q", got)
+	}
+	if argFull(nil) != "" {
+		t.Errorf("argFull(nil) should be empty")
+	}
+}
+
+func TestToolCallRendersArgAndFullInput(t *testing.T) {
+	out := collect(ev("tool_call", api.ToolCall{
+		ToolCallID: "t1", Name: "run_terminal",
+		RawInput: json.RawMessage(`{"command":"go test ./..."}`),
+	}))
+	if len(out) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(out))
+	}
+	html := out[0]
+	for _, want := range []string{"go test ./...", "tl-tool-detail", "<summary>input</summary>"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("tool_call html missing %q:\n%s", want, html)
+		}
+	}
+}

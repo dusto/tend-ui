@@ -399,29 +399,95 @@ func toolKind(name string) string {
 	}
 }
 
-// argSummary pulls a short human-facing argument out of a tool's raw input — the
-// file uri/path for the editor tools — or "" when there is nothing concise.
+// argKeys are the raw-input fields, in priority order, that make a good one-line
+// tool summary: the file the editor tools touch, the command a shell runs, the
+// pattern/query a search takes, the url a fetch hits, and so on. The first one
+// present wins.
+var argKeys = []string{
+	"uri", "path", "file", "file_path",
+	"command", "cmd",
+	"pattern", "query", "q", "search",
+	"url",
+	"prompt", "text", "description", "message", "name",
+}
+
+// argSummary pulls a short human-facing argument out of a tool's raw input so the
+// timeline shows what a tool did, not just its name. It prefers a known concise
+// key (see argKeys) and otherwise falls back to the first scalar field, always
+// truncated to one line. Returns "" only when there is nothing renderable.
 func argSummary(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
 	}
-	var a struct {
-		URI  string `json:"uri"`
-		Path string `json:"path"`
-		File string `json:"file"`
-	}
-	if json.Unmarshal(raw, &a) != nil {
+	var obj map[string]json.RawMessage
+	if json.Unmarshal(raw, &obj) != nil {
 		return ""
 	}
-	switch {
-	case a.URI != "":
-		return trimFileURI(a.URI)
-	case a.Path != "":
-		return a.Path
-	case a.File != "":
-		return a.File
+	for _, k := range argKeys {
+		if v, ok := obj[k]; ok {
+			if s := scalarString(v); s != "" {
+				if k == "uri" || k == "path" || k == "file" || k == "file_path" {
+					s = trimFileURI(s)
+				}
+				return clip(collapseWS(s), 140)
+			}
+		}
+	}
+	// Nothing well-known: surface the first scalar field as key=value so an
+	// unfamiliar tool still shows a hint of its input.
+	for k, v := range obj {
+		if s := scalarString(v); s != "" {
+			return clip(k+"="+collapseWS(s), 140)
+		}
 	}
 	return ""
+}
+
+// scalarString renders a JSON scalar (string, number, bool) as a plain string;
+// it returns "" for objects, arrays, and null so summaries stay one line.
+func scalarString(raw json.RawMessage) string {
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return ""
+	}
+	switch t := v.(type) {
+	case string:
+		return t
+	case bool, float64:
+		return strings.TrimSpace(string(raw))
+	default:
+		return ""
+	}
+}
+
+// argFull pretty-prints a tool's raw input for the expandable detail view, so the
+// full call is available on demand. Returns "" when there is nothing to show.
+func argFull(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var v any
+	if json.Unmarshal(raw, &v) != nil {
+		return strings.TrimSpace(string(raw))
+	}
+	out, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return strings.TrimSpace(string(raw))
+	}
+	return string(out)
+}
+
+// collapseWS flattens runs of whitespace (newlines included) to single spaces so
+// a multi-line command reads as one line in the summary.
+func collapseWS(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// clip truncates s to at most n runes, appending an ellipsis when it cuts.
+func clip(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
 }
 
 // trimFileURI shows a file:// uri as a plain path (its basename-ish tail),

@@ -155,7 +155,7 @@ func NewServer(evHub *bridge.Hub[api.Event], tlHub *bridge.Hub[string], list Lis
 			return
 		}
 		sessions, _ := s.list.List(r.Context())
-		approvals, _ := s.ctl.Approvals(r.Context(), s.tl.Current())
+		approvals := s.focusedApprovals(r.Context())
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_ = templates.Shell(prefix, sessions, s.tl.Current(), s.headerData(sessions), s.tl.ToolCalls(), approvals, s.conn.Connected()).Render(r.Context(), w)
 	})
@@ -184,12 +184,24 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	_ = templates.ConnIndicator(s.conn.Connected()).Render(r.Context(), w)
 }
 
+// focusedApprovals lists the pending approvals for the focused session ONLY. With
+// no focused session it returns empty WITHOUT calling approval.list — an empty
+// session id would list every approval in the workspace and leak details from
+// sessions the UI is not showing.
+func (s *Server) focusedApprovals(ctx context.Context) []api.ApprovalSummary {
+	cur := s.tl.Current()
+	if cur == "" {
+		return nil
+	}
+	approvals, _ := s.ctl.Approvals(ctx, cur)
+	return approvals
+}
+
 // handleApprovals renders the focused session's pending approvals (htmx-polled),
 // so a mutation waiting on approval appears and can be answered.
 func (s *Server) handleApprovals(w http.ResponseWriter, r *http.Request) {
-	approvals, _ := s.ctl.Approvals(r.Context(), s.tl.Current())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = templates.ApprovalsPanel(approvals).Render(r.Context(), w)
+	_ = templates.ApprovalsPanel(s.focusedApprovals(r.Context())).Render(r.Context(), w)
 }
 
 // handleRespond answers an approval (approve or deny) and returns the refreshed
@@ -209,13 +221,15 @@ func (s *Server) handleRespond(approved bool) http.HandlerFunc {
 			return
 		}
 		// Only the focused session's currently-pending approvals may be answered.
-		approvals, _ := s.ctl.Approvals(r.Context(), s.tl.Current())
-		if s.tl.Current() != "" && containsApproval(approvals, api.ApprovalID(id)) {
+		// focusedApprovals returns empty with no focused session, so a no-focus
+		// request falls through to a no-op re-render.
+		approvals := s.focusedApprovals(r.Context())
+		if containsApproval(approvals, api.ApprovalID(id)) {
 			if err := s.ctl.Respond(r.Context(), api.ApprovalID(id), approved); err != nil {
 				http.Error(w, err.Error(), http.StatusBadGateway)
 				return
 			}
-			approvals, _ = s.ctl.Approvals(r.Context(), s.tl.Current())
+			approvals = s.focusedApprovals(r.Context())
 		}
 		// Whether answered or ignored (stale/foreign id), return the fresh panel so
 		// the UI reflects the true pending set.

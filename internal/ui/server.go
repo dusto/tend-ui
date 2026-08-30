@@ -193,7 +193,10 @@ func (s *Server) handleApprovals(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleRespond answers an approval (approve or deny) and returns the refreshed
-// approvals panel.
+// approvals panel. The posted id is verified to be currently pending FOR THE
+// FOCUSED SESSION before responding — a stale panel (e.g. after a session switch)
+// must not resolve another session's approval; such a request is a no-op that
+// just re-renders the corrected panel.
 func (s *Server) handleRespond(approved bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -205,14 +208,30 @@ func (s *Server) handleRespond(approved bool) http.HandlerFunc {
 			http.Error(w, "approval_id is required", http.StatusBadRequest)
 			return
 		}
-		if err := s.ctl.Respond(r.Context(), api.ApprovalID(id), approved); err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
+		// Only the focused session's currently-pending approvals may be answered.
 		approvals, _ := s.ctl.Approvals(r.Context(), s.tl.Current())
+		if s.tl.Current() != "" && containsApproval(approvals, api.ApprovalID(id)) {
+			if err := s.ctl.Respond(r.Context(), api.ApprovalID(id), approved); err != nil {
+				http.Error(w, err.Error(), http.StatusBadGateway)
+				return
+			}
+			approvals, _ = s.ctl.Approvals(r.Context(), s.tl.Current())
+		}
+		// Whether answered or ignored (stale/foreign id), return the fresh panel so
+		// the UI reflects the true pending set.
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_ = templates.ApprovalsPanel(approvals).Render(r.Context(), w)
 	}
+}
+
+// containsApproval reports whether id is among the summaries.
+func containsApproval(approvals []api.ApprovalSummary, id api.ApprovalID) bool {
+	for _, a := range approvals {
+		if a.ApprovalID == id {
+			return true
+		}
+	}
+	return false
 }
 
 // handlePrompt dispatches a prompt turn to the focused session (fire-and-forget;

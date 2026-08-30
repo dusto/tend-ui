@@ -255,7 +255,7 @@ func TestApprovalsRenderWithDiffAndActions(t *testing.T) {
 }
 
 func TestApprovePostsRespondTrue(t *testing.T) {
-	ctl := &fakeCmd{}
+	ctl := &fakeCmd{approvals: []api.ApprovalSummary{{ApprovalID: "ap-9", SessionID: "ses-1"}}}
 	s := newTestServerWith(t, &fakeLister{}, &fakeSurface{current: "ses-1"}, ctl)
 	postForm(t, s.Base()+"approve", "approval_id=ap-9")
 	if ctl.responded["ap-9"] != true {
@@ -264,11 +264,39 @@ func TestApprovePostsRespondTrue(t *testing.T) {
 }
 
 func TestDenyPostsRespondFalse(t *testing.T) {
-	ctl := &fakeCmd{}
+	ctl := &fakeCmd{approvals: []api.ApprovalSummary{{ApprovalID: "ap-9", SessionID: "ses-1"}}}
 	s := newTestServerWith(t, &fakeLister{}, &fakeSurface{current: "ses-1"}, ctl)
 	postForm(t, s.Base()+"deny", "approval_id=ap-9")
 	if v, ok := ctl.responded["ap-9"]; !ok || v {
 		t.Errorf("deny did not respond approved=false: %+v", ctl.responded)
+	}
+}
+
+func TestRespondIgnoresApprovalNotForFocusedSession(t *testing.T) {
+	// The focused session (ses-1) has one pending approval (ap-1). A post for a
+	// different id (ap-OTHER, e.g. a stale panel after a switch) must NOT respond.
+	ctl := &fakeCmd{approvals: []api.ApprovalSummary{
+		{ApprovalID: "ap-1", SessionID: "ses-1", Kind: "file_edit"},
+	}}
+	s := newTestServerWith(t, &fakeLister{}, &fakeSurface{current: "ses-1"}, ctl)
+
+	postForm(t, s.Base()+"approve", "approval_id=ap-OTHER")
+	if _, ok := ctl.responded["ap-OTHER"]; ok {
+		t.Errorf("responded to an approval not pending for the focused session: %+v", ctl.responded)
+	}
+	// The legitimate one still works.
+	postForm(t, s.Base()+"approve", "approval_id=ap-1")
+	if ctl.responded["ap-1"] != true {
+		t.Errorf("focused-session approval not answered: %+v", ctl.responded)
+	}
+}
+
+func TestRespondNoOpWithoutFocusedSession(t *testing.T) {
+	ctl := &fakeCmd{approvals: []api.ApprovalSummary{{ApprovalID: "ap-1", SessionID: "ses-1"}}}
+	s := newTestServerWith(t, &fakeLister{}, &fakeSurface{current: ""}, ctl)
+	postForm(t, s.Base()+"approve", "approval_id=ap-1")
+	if len(ctl.responded) != 0 {
+		t.Errorf("responded with no focused session: %+v", ctl.responded)
 	}
 }
 

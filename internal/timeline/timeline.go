@@ -374,16 +374,38 @@ func (t *Timeline) applyTools(ev api.Event) {
 		t.toolIdx[p.ToolCallID] = len(t.tools)
 		t.tools = append(t.tools, session.ToolRef{
 			ID: p.ToolCallID, Name: p.Name, Kind: toolKind(p.Name),
-			Arg: argSummary(p.RawInput), Status: "running",
+			Arg: argSummary(p.RawInput), Full: argFull(p.RawInput), Status: "running",
 		})
 	case "tool_call_update":
 		var p api.ToolCallUpdate
 		if json.Unmarshal(ev.Payload, &p) != nil {
 			return
 		}
-		if i, ok := t.toolIdx[p.ToolCallID]; ok && p.Status != "" {
+		i, ok := t.toolIdx[p.ToolCallID]
+		if !ok {
+			return
+		}
+		// Status and the refined title/input arrive on the same event or on
+		// separate ones; apply and broadcast each independently. An empty status is
+		// a no-status refine and must not blank the chip (guarded).
+		if p.Status != "" {
 			t.tools[i].Status = p.Status
 			t.hub.Broadcast(render(templates.TLToolStatus(p.ToolCallID, p.Status, true)))
+		}
+		refined := false
+		if p.Name != "" && p.Name != t.tools[i].Name {
+			t.tools[i].Name = p.Name
+			refined = true
+		}
+		if len(p.RawInput) > 0 {
+			// The provider refined the tool's input (the initial tool_call carried an
+			// empty one); update the card so it shows the real arguments, not {}.
+			t.tools[i].Arg = argSummary(p.RawInput)
+			t.tools[i].Full = argFull(p.RawInput)
+			refined = true
+		}
+		if refined {
+			t.hub.Broadcast(render(templates.TLToolRefine(p.ToolCallID, t.tools[i].Name, t.tools[i].Arg, t.tools[i].Full)))
 		}
 	}
 }

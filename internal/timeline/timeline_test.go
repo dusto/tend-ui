@@ -201,6 +201,62 @@ func TestToolTrackingAndStatusUpdate(t *testing.T) {
 	}
 }
 
+func TestToolCallUpdateRefinesInput(t *testing.T) {
+	hub := bridge.NewHub[string]()
+	out, cancel := hub.Subscribe()
+	defer cancel()
+	tl := New("/repo", hub)
+	tl.setStream(api.SessionInfo{SessionID: "ses-1", StreamID: "session:ses-1"}, "e1")
+	<-out // drain clear frame
+
+	resub := make(chan struct{}, 1)
+	push := func(typ string, payload any) {
+		p, _ := json.Marshal(api.EventPushParams{Event: api.Event{
+			StreamID: "session:ses-1", Type: typ, Payload: mustJSON(payload),
+		}})
+		tl.onNotify("event.push", p, resub)
+	}
+
+	// The provider opens the tool_call with an EMPTY input (args not streamed yet).
+	push("tool_call", api.ToolCall{ToolCallID: "t1", Name: "Write", RawInput: mustJSON(map[string]any{})})
+	<-out // the coalescer's tool-call card
+	if got := tl.ToolCalls()[0].Arg; got != "" {
+		t.Fatalf("initial arg should be empty, got %q", got)
+	}
+
+	// A refine update carries the populated input, often with an empty status.
+	push("tool_call_update", api.ToolCallUpdate{
+		ToolCallID: "t1", Status: "",
+		RawInput: mustJSON(map[string]any{"file_path": "/x.go", "content": "package x"}),
+	})
+	select {
+	case frame := <-out:
+		// The refine OOB-swaps the arg and input-detail targets, and must NOT blank
+		// the status chip (no status target in this frame).
+		if !strings.Contains(frame, `id="tca-t1"`) || !strings.Contains(frame, "hx-swap-oob") {
+			t.Errorf("refine frame missing arg OOB swap: %q", frame)
+		}
+		if !strings.Contains(frame, `id="tcd-t1"`) || !strings.Contains(frame, "file_path") {
+			t.Errorf("refine frame missing input detail: %q", frame)
+		}
+		if strings.Contains(frame, `id="tcs-t1"`) {
+			t.Errorf("refine must not touch the status chip: %q", frame)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("tool_call_update did not broadcast a refine swap")
+	}
+	ref := tl.ToolCalls()[0]
+	if ref.Arg != "/x.go" {
+		t.Errorf("refined arg = %q, want /x.go", ref.Arg)
+	}
+	if !strings.Contains(ref.Full, "file_path") {
+		t.Errorf("refined full input not stored: %q", ref.Full)
+	}
+	if ref.Status != "running" {
+		t.Errorf("empty-status refine must not change status, got %q", ref.Status)
+	}
+}
+
 func mustJSON(v any) []byte {
 	b, err := json.Marshal(v)
 	if err != nil {

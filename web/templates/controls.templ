@@ -24,6 +24,12 @@ templ ApprovalsPanel(approvals []api.ApprovalSummary) {
 				if approvalCommand(a) != "" {
 					<div class="appr-cmd mono">$ { approvalCommand(a) }</div>
 				}
+				if approvalToolName(a) != "" {
+					<div class="appr-tool mono">{ approvalToolName(a) }</div>
+					if approvalToolInput(a) != "" {
+						<pre class="appr-tool-input mono">{ approvalToolInput(a) }</pre>
+					}
+				}
 				<div class="appr-actions">
 					<button
 						class="btn approve"

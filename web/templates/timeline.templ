@@ -1,6 +1,10 @@
 package templates
 
-import "strconv"
+import (
+	"strconv"
+
+	"github.com/dusto/tend-ui/internal/markdown"
+)
 
 // Timeline block fragments. Each is rendered to HTML and appended to the log by
 // htmx's sse extension as one "item" event. Streamed message/thought text is
@@ -12,7 +16,9 @@ templ TLPrompt(text string, attachments int) {
 		<div class="tl-gutter"><span class="tl-node"></span></div>
 		<div class="tl-main">
 			<div class="tl-who">you</div>
-			<div class="tl-body pre">{ text }</div>
+			<div class="tl-body md">
+				@templ.Raw(markdown.ToSafeHTML(text))
+			</div>
 			if attachments > 0 {
 				<div class="tl-meta">+{ strconv.Itoa(attachments) } attachment(s)</div>
 			}
@@ -25,7 +31,9 @@ templ TLMessage(text string) {
 		<div class="tl-gutter"><span class="tl-node"></span></div>
 		<div class="tl-main">
 			<div class="tl-who">agent</div>
-			<div class="tl-body pre">{ text }</div>
+			<div class="tl-body md">
+				@templ.Raw(markdown.ToSafeHTML(text))
+			</div>
 		</div>
 	</div>
 }
@@ -35,7 +43,9 @@ templ TLThought(text string) {
 		<div class="tl-gutter"><span class="tl-node"></span></div>
 		<div class="tl-main">
 			<div class="tl-who">thinking</div>
-			<div class="tl-body pre dim">{ text }</div>
+			<div class="tl-body md dim">
+				@templ.Raw(markdown.ToSafeHTML(text))
+			</div>
 		</div>
 	</div>
 }

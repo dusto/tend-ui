@@ -1,0 +1,76 @@
+package templates
+
+import "github.com/dusto/tend/api"
+
+// ApprovalsPanel lists the focused session's pending approvals with their
+// detail (a file edit's diff, a pane run's command) and Approve/Deny actions.
+// htmx polls it so it appears/updates live; answering posts to /approve|/deny.
+// This is what makes tend-ui interactive rather than read-only (tend-du1.12).
+templ ApprovalsPanel(approvals []api.ApprovalSummary) {
+	<div id="approvals" class="approvals" hx-get="approvals" hx-trigger="every 2s" hx-swap="outerHTML">
+		for _, a := range approvals {
+			<div class="appr-card">
+				<div class="appr-head">
+					<span class="appr-title">{ approvalTitle(a) }</span>
+					<span class="appr-kind mono">{ a.Kind }</span>
+				</div>
+				if approvalDiff(a) != "" {
+					<pre class="appr-diff mono">
+						for _, line := range diffLines(approvalDiff(a)) {
+							<div class={ diffLineClass(line) }>{ line }</div>
+						}
+					</pre>
+				}
+				if approvalCommand(a) != "" {
+					<div class="appr-cmd mono">$ { approvalCommand(a) }</div>
+				}
+				<div class="appr-actions">
+					<button
+						class="btn approve"
+						hx-post="approve"
+						hx-vals={ templ.JSONString(map[string]string{"approval_id": string(a.ApprovalID)}) }
+						hx-target="#approvals"
+						hx-swap="outerHTML"
+					>Approve</button>
+					<button
+						class="btn deny"
+						hx-post="deny"
+						hx-vals={ templ.JSONString(map[string]string{"approval_id": string(a.ApprovalID)}) }
+						hx-target="#approvals"
+						hx-swap="outerHTML"
+					>Deny</button>
+				</div>
+			</div>
+		}
+	</div>
+}
+
+// Composer is the prompt input for the focused session. Submitting posts to
+// /prompt; the turn's output streams into the timeline. found gates it: with no
+// session there is nothing to prompt.
+templ Composer(found bool) {
+	if found {
+		<form
+			class="composer"
+			hx-post="prompt"
+			hx-swap="none"
+			hx-on:htmx:after-request="if(event.detail.successful) this.reset()"
+		>
+			<textarea name="text" class="composer-input mono" rows="2" placeholder="Message the session…  (Enter to send)"></textarea>
+			<div class="composer-row">
+				<span class="composer-hint mono">the turn streams into the timeline</span>
+				<button type="submit" class="btn send">Send</button>
+			</div>
+		</form>
+	}
+}
+
+// SessionControls are the header's stop/cancel actions for the focused session.
+templ SessionControls(found bool) {
+	if found {
+		<span class="sh-controls">
+			<button class="btn ctl" hx-post="cancel" hx-swap="none" title="Cancel the in-flight turn">Cancel turn</button>
+			<button class="btn ctl stop" hx-post="stop" hx-swap="none" title="End the session">Stop</button>
+		</span>
+	}
+}

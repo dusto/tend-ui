@@ -6,6 +6,8 @@ github.com/dusto/tend v0.1.1-0.20260828131543-7f8d4a9cb0ff h1:JvrTb2w0iwK9MvkRNB
 github.com/dusto/tend v0.1.1-0.20260828131543-7f8d4a9cb0ff/go.mod h1:4C4Mi8E06Adj5FjghaPkydMKsmub5Ngzt/Z1Cf70i+U=
 github.com/dusto/tend v0.1.1-0.20260829005539-c415266ade0e h1:kimJaATJ1Ck0a7iiwT3U032GDAjFMiLyorNLDtCo7ik=
 github.com/dusto/tend v0.1.1-0.20260829005539-c415266ade0e/go.mod h1:4C4Mi8E06Adj5FjghaPkydMKsmub5Ngzt/Z1Cf70i+U=
+github.com/dusto/tend v0.1.1-0.20260830003500-291189e4ca23 h1:lmwNP5WLzIlDGvIUEmp49y3emh7zcyVXnQXS8LXE4MU=
+github.com/dusto/tend v0.1.1-0.20260830003500-291189e4ca23/go.mod h1:4C4Mi8E06Adj5FjghaPkydMKsmub5Ngzt/Z1Cf70i+U=
 github.com/google/go-cmp v0.6.0 h1:ofyhxvXcZhMsU5ulbFiLKl/XBFqE1GSq7atu8tAmTRI=
 github.com/google/go-cmp v0.6.0/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
 github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 h1:KRzFb2m7YtdldCEkzs6KqmJw4nqEVZGK7IN2kJkjTuQ=

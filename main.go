@@ -17,6 +17,7 @@ import (
 	"github.com/dusto/tend/api"
 
 	"github.com/dusto/tend-ui/internal/bridge"
+	"github.com/dusto/tend-ui/internal/control"
 	"github.com/dusto/tend-ui/internal/session"
 	"github.com/dusto/tend-ui/internal/timeline"
 	"github.com/dusto/tend-ui/internal/ui"
@@ -55,11 +56,13 @@ func run() error {
 	tl := timeline.New(dir, tlHub)
 	lister := session.NewLister(dir)
 	defer func() { _ = lister.Close() }()
+	ctl := control.New(dir)
+	defer func() { _ = ctl.Close() }()
 	wsBridge := bridge.New(dir, evHub)
 	go wsBridge.Run(ctx)
 	go tl.Run(ctx)
 
-	srv, err := ui.NewServer(evHub, tlHub, lister, tl, wsBridge)
+	srv, err := ui.NewServer(evHub, tlHub, lister, tl, wsBridge, ctl)
 	if err != nil {
 		return err
 	}

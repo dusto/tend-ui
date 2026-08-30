@@ -53,6 +53,16 @@ type ConnStatus interface {
 	Connected() bool
 }
 
+// Commander performs daemon mutations for the interactive controls (answer
+// approvals, prompt, cancel/stop). *control.Controller satisfies it.
+type Commander interface {
+	Approvals(ctx context.Context, sessionID api.SessionID) ([]api.ApprovalSummary, error)
+	Respond(ctx context.Context, id api.ApprovalID, approved bool) error
+	Prompt(ctx context.Context, sessionID api.SessionID, text string) error
+	Cancel(ctx context.Context, sessionID api.SessionID) error
+	Stop(ctx context.Context, sessionID api.SessionID) error
+}
+
 // Server is the loopback UI server. Base is the tokenized URL the webview loads.
 // It streams two hubs to the browser: workspace events (the activity feed) and
 // pre-rendered session-timeline blocks; it also serves the session rail and
@@ -66,6 +76,7 @@ type Server struct {
 	list  Lister
 	tl    SessionSurface
 	conn  ConnStatus
+	ctl   Commander
 }
 
 // newToken returns a fresh unguessable per-run token.
@@ -81,7 +92,7 @@ func newToken() (string, error) {
 // workspace events (the activity feed); tlHub carries pre-rendered session
 // timeline blocks; list backs the session rail and tl receives its selection.
 // The caller navigates the webview to Base() and must Close it.
-func NewServer(evHub *bridge.Hub[api.Event], tlHub *bridge.Hub[string], list Lister, tl SessionSurface, conn ConnStatus) (*Server, error) {
+func NewServer(evHub *bridge.Hub[api.Event], tlHub *bridge.Hub[string], list Lister, tl SessionSurface, conn ConnStatus, ctl Commander) (*Server, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil, fmt.Errorf("ui: listen: %w", err)
@@ -108,6 +119,7 @@ func NewServer(evHub *bridge.Hub[api.Event], tlHub *bridge.Hub[string], list Lis
 		list:  list,
 		tl:    tl,
 		conn:  conn,
+		ctl:   ctl,
 	}
 
 	mux := http.NewServeMux()
@@ -128,6 +140,13 @@ func NewServer(evHub *bridge.Hub[api.Event], tlHub *bridge.Hub[string], list Lis
 	mux.HandleFunc(prefix+"header", s.handleHeader)
 	mux.HandleFunc(prefix+"jump", s.handleJump)
 	mux.HandleFunc(prefix+"status", s.handleStatus)
+	// Interactive controls (prompt-capable): answer approvals, prompt, cancel/stop.
+	mux.HandleFunc(prefix+"approvals", s.handleApprovals)
+	mux.HandleFunc(prefix+"approve", s.handleRespond(true))
+	mux.HandleFunc(prefix+"deny", s.handleRespond(false))
+	mux.HandleFunc(prefix+"prompt", s.handlePrompt)
+	mux.HandleFunc(prefix+"cancel", s.handleCancel)
+	mux.HandleFunc(prefix+"stop", s.handleStop)
 	// The app shell. Only the exact token root renders it; anything else under
 	// the token that is not an asset is a 404.
 	mux.HandleFunc(prefix, func(w http.ResponseWriter, r *http.Request) {
@@ -136,8 +155,9 @@ func NewServer(evHub *bridge.Hub[api.Event], tlHub *bridge.Hub[string], list Lis
 			return
 		}
 		sessions, _ := s.list.List(r.Context())
+		approvals, _ := s.ctl.Approvals(r.Context(), s.tl.Current())
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = templates.Shell(prefix, sessions, s.tl.Current(), s.headerData(sessions), s.tl.ToolCalls(), s.conn.Connected()).Render(r.Context(), w)
+		_ = templates.Shell(prefix, sessions, s.tl.Current(), s.headerData(sessions), s.tl.ToolCalls(), approvals, s.conn.Connected()).Render(r.Context(), w)
 	})
 
 	go func() { _ = http.Serve(ln, mux) }()
@@ -162,6 +182,90 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = templates.ConnIndicator(s.conn.Connected()).Render(r.Context(), w)
+}
+
+// handleApprovals renders the focused session's pending approvals (htmx-polled),
+// so a mutation waiting on approval appears and can be answered.
+func (s *Server) handleApprovals(w http.ResponseWriter, r *http.Request) {
+	approvals, _ := s.ctl.Approvals(r.Context(), s.tl.Current())
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = templates.ApprovalsPanel(approvals).Render(r.Context(), w)
+}
+
+// handleRespond answers an approval (approve or deny) and returns the refreshed
+// approvals panel.
+func (s *Server) handleRespond(approved bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		id := r.FormValue("approval_id")
+		if id == "" {
+			http.Error(w, "approval_id is required", http.StatusBadRequest)
+			return
+		}
+		if err := s.ctl.Respond(r.Context(), api.ApprovalID(id), approved); err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		approvals, _ := s.ctl.Approvals(r.Context(), s.tl.Current())
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = templates.ApprovalsPanel(approvals).Render(r.Context(), w)
+	}
+}
+
+// handlePrompt dispatches a prompt turn to the focused session (fire-and-forget;
+// the turn streams into the timeline).
+func (s *Server) handlePrompt(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	current := s.tl.Current()
+	if current == "" {
+		http.Error(w, "no session is focused", http.StatusBadRequest)
+		return
+	}
+	text := strings.TrimSpace(r.FormValue("text"))
+	if text == "" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err := s.ctl.Prompt(r.Context(), current, text); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleCancel cancels the focused session's in-flight turn.
+func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
+	s.sessionAction(w, r, s.ctl.Cancel)
+}
+
+// handleStop ends the focused session.
+func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {
+	s.sessionAction(w, r, s.ctl.Stop)
+}
+
+// sessionAction runs a no-arg session mutation (cancel/stop) against the focused
+// session and returns 204.
+func (s *Server) sessionAction(w http.ResponseWriter, r *http.Request, act func(context.Context, api.SessionID) error) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	current := s.tl.Current()
+	if current == "" {
+		http.Error(w, "no session is focused", http.StatusBadRequest)
+		return
+	}
+	if err := act(r.Context(), current); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleJump renders the tool-call jump-index rail (htmx polls it to keep the

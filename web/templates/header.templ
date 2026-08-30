@@ -30,6 +30,7 @@ templ SessionHeader(s api.SessionInfo, u session.Usage, found bool) {
 						<span class="sep">·</span><span class="sh-task">{ s.Task.ID }</span>
 					}
 				</div>
+				@SessionControls(found)
 			</div>
 			@usageBar(u)
 		}

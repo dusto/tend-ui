@@ -3,6 +3,7 @@ package ui_test
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -45,11 +46,45 @@ type fakeConn struct{ up bool }
 
 func (f fakeConn) Connected() bool { return f.up }
 
+// fakeCmd records the interactive-control calls and serves a fixed approval set.
+type fakeCmd struct {
+	approvals     []api.ApprovalSummary
+	approvalsSess []api.SessionID // session ids passed to Approvals, in order
+	responded     map[api.ApprovalID]bool
+	promptedTo    api.SessionID
+	promptText    string
+	cancelled     api.SessionID
+	stopped       api.SessionID
+}
+
+func (f *fakeCmd) Approvals(_ context.Context, s api.SessionID) ([]api.ApprovalSummary, error) {
+	f.approvalsSess = append(f.approvalsSess, s)
+	return f.approvals, nil
+}
+func (f *fakeCmd) Respond(_ context.Context, id api.ApprovalID, approved bool) error {
+	if f.responded == nil {
+		f.responded = map[api.ApprovalID]bool{}
+	}
+	f.responded[id] = approved
+	return nil
+}
+func (f *fakeCmd) Prompt(_ context.Context, s api.SessionID, text string) error {
+	f.promptedTo, f.promptText = s, text
+	return nil
+}
+func (f *fakeCmd) Cancel(_ context.Context, s api.SessionID) error { f.cancelled = s; return nil }
+func (f *fakeCmd) Stop(_ context.Context, s api.SessionID) error   { f.stopped = s; return nil }
+
 // newTestServer builds a Server with empty hubs and the given rail backing
-// (connected by default).
+// (connected by default, empty commander).
 func newTestServer(t *testing.T, list ui.Lister, tl ui.SessionSurface) *ui.Server {
 	t.Helper()
-	s, err := ui.NewServer(bridge.NewHub[api.Event](), bridge.NewHub[string](), list, tl, fakeConn{up: true})
+	return newTestServerWith(t, list, tl, &fakeCmd{})
+}
+
+func newTestServerWith(t *testing.T, list ui.Lister, tl ui.SessionSurface, ctl ui.Commander) *ui.Server {
+	t.Helper()
+	s, err := ui.NewServer(bridge.NewHub[api.Event](), bridge.NewHub[string](), list, tl, fakeConn{up: true}, ctl)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -179,7 +214,7 @@ func TestHeaderEmptyWhenNoCurrentSession(t *testing.T) {
 // The connection indicator reflects the real connection state, not a hardcoded
 // value: connected renders green, disconnected renders the "down" state.
 func TestStatusReflectsConnectionState(t *testing.T) {
-	up, err := ui.NewServer(bridge.NewHub[api.Event](), bridge.NewHub[string](), &fakeLister{}, &fakeSurface{}, fakeConn{up: true})
+	up, err := ui.NewServer(bridge.NewHub[api.Event](), bridge.NewHub[string](), &fakeLister{}, &fakeSurface{}, fakeConn{up: true}, &fakeCmd{})
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -188,7 +223,7 @@ func TestStatusReflectsConnectionState(t *testing.T) {
 		t.Errorf("connected status wrong: %s", body)
 	}
 
-	down, err := ui.NewServer(bridge.NewHub[api.Event](), bridge.NewHub[string](), &fakeLister{}, &fakeSurface{}, fakeConn{up: false})
+	down, err := ui.NewServer(bridge.NewHub[api.Event](), bridge.NewHub[string](), &fakeLister{}, &fakeSurface{}, fakeConn{up: false}, &fakeCmd{})
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -196,6 +231,145 @@ func TestStatusReflectsConnectionState(t *testing.T) {
 	if _, body := get(t, down.Base()+"status"); !strings.Contains(body, "down") || !strings.Contains(body, "reconnecting") {
 		t.Errorf("disconnected status wrong: %s", body)
 	}
+}
+
+func TestApprovalsRenderWithDiffAndActions(t *testing.T) {
+	detail, _ := json.Marshal(api.ApprovalDetail{
+		Kind: "file_edit",
+		FileEdit: &api.FileEditApproval{Targets: []api.FileEditTarget{{
+			URI: "file:///repo/a.go", Diff: "@@ -1 +1 @@\n-old\n+new",
+		}}},
+	})
+	ctl := &fakeCmd{approvals: []api.ApprovalSummary{
+		{ApprovalID: "ap-1", SessionID: "ses-1", Kind: "file_edit", Detail: detail},
+	}}
+	s := newTestServerWith(t, &fakeLister{}, &fakeSurface{current: "ses-1"}, ctl)
+
+	status, body := get(t, s.Base()+"approvals")
+	if status != http.StatusOK {
+		t.Fatalf("approvals status = %d", status)
+	}
+	for _, want := range []string{"Apply file edit?", "+new", "-old", `hx-post="approve"`, "ap-1"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("approvals missing %q: %s", want, body)
+		}
+	}
+}
+
+func TestApprovePostsRespondTrue(t *testing.T) {
+	ctl := &fakeCmd{approvals: []api.ApprovalSummary{{ApprovalID: "ap-9", SessionID: "ses-1"}}}
+	s := newTestServerWith(t, &fakeLister{}, &fakeSurface{current: "ses-1"}, ctl)
+	postForm(t, s.Base()+"approve", "approval_id=ap-9")
+	if ctl.responded["ap-9"] != true {
+		t.Errorf("approve did not respond approved=true: %+v", ctl.responded)
+	}
+}
+
+func TestDenyPostsRespondFalse(t *testing.T) {
+	ctl := &fakeCmd{approvals: []api.ApprovalSummary{{ApprovalID: "ap-9", SessionID: "ses-1"}}}
+	s := newTestServerWith(t, &fakeLister{}, &fakeSurface{current: "ses-1"}, ctl)
+	postForm(t, s.Base()+"deny", "approval_id=ap-9")
+	if v, ok := ctl.responded["ap-9"]; !ok || v {
+		t.Errorf("deny did not respond approved=false: %+v", ctl.responded)
+	}
+}
+
+func TestRespondIgnoresApprovalNotForFocusedSession(t *testing.T) {
+	// The focused session (ses-1) has one pending approval (ap-1). A post for a
+	// different id (ap-OTHER, e.g. a stale panel after a switch) must NOT respond.
+	ctl := &fakeCmd{approvals: []api.ApprovalSummary{
+		{ApprovalID: "ap-1", SessionID: "ses-1", Kind: "file_edit"},
+	}}
+	s := newTestServerWith(t, &fakeLister{}, &fakeSurface{current: "ses-1"}, ctl)
+
+	postForm(t, s.Base()+"approve", "approval_id=ap-OTHER")
+	if _, ok := ctl.responded["ap-OTHER"]; ok {
+		t.Errorf("responded to an approval not pending for the focused session: %+v", ctl.responded)
+	}
+	// The legitimate one still works.
+	postForm(t, s.Base()+"approve", "approval_id=ap-1")
+	if ctl.responded["ap-1"] != true {
+		t.Errorf("focused-session approval not answered: %+v", ctl.responded)
+	}
+}
+
+func TestRespondNoOpWithoutFocusedSession(t *testing.T) {
+	ctl := &fakeCmd{approvals: []api.ApprovalSummary{{ApprovalID: "ap-1", SessionID: "ses-1"}}}
+	s := newTestServerWith(t, &fakeLister{}, &fakeSurface{current: ""}, ctl)
+	postForm(t, s.Base()+"approve", "approval_id=ap-1")
+	if len(ctl.responded) != 0 {
+		t.Errorf("responded with no focused session: %+v", ctl.responded)
+	}
+	// And it must never list approvals with an empty session id (which would list
+	// the whole workspace and leak details from unfocused sessions).
+	for _, sess := range ctl.approvalsSess {
+		if sess == "" {
+			t.Errorf("Approvals called with empty session id: %+v", ctl.approvalsSess)
+		}
+	}
+}
+
+// TestApprovalsPanelNoFocusDoesNotListWorkspace guards the render paths: with no
+// focused session the approvals panel must be empty WITHOUT calling approval.list
+// (an empty id lists every workspace approval, leaking unfocused sessions).
+func TestApprovalsPanelNoFocusDoesNotListWorkspace(t *testing.T) {
+	ctl := &fakeCmd{approvals: []api.ApprovalSummary{{ApprovalID: "ap-x", SessionID: "ses-other"}}}
+	s := newTestServerWith(t, &fakeLister{}, &fakeSurface{current: ""}, ctl)
+	status, body := get(t, s.Base()+"approvals")
+	if status != http.StatusOK {
+		t.Fatalf("approvals status = %d", status)
+	}
+	if strings.Contains(body, "ap-x") || strings.Contains(body, "ses-other") {
+		t.Errorf("approvals panel leaked an unfocused session's approval:\n%s", body)
+	}
+	for _, sess := range ctl.approvalsSess {
+		if sess == "" {
+			t.Errorf("Approvals called with empty session id: %+v", ctl.approvalsSess)
+		}
+	}
+}
+
+func TestPromptDispatchesToFocusedSession(t *testing.T) {
+	ctl := &fakeCmd{}
+	s := newTestServerWith(t, &fakeLister{}, &fakeSurface{current: "ses-7"}, ctl)
+	postForm(t, s.Base()+"prompt", "text=hello+there")
+	if ctl.promptedTo != "ses-7" || ctl.promptText != "hello there" {
+		t.Errorf("prompt = %q / %q, want ses-7 / 'hello there'", ctl.promptedTo, ctl.promptText)
+	}
+}
+
+func TestCancelAndStopTargetFocusedSession(t *testing.T) {
+	ctl := &fakeCmd{}
+	s := newTestServerWith(t, &fakeLister{}, &fakeSurface{current: "ses-3"}, ctl)
+	postForm(t, s.Base()+"cancel", "")
+	postForm(t, s.Base()+"stop", "")
+	if ctl.cancelled != "ses-3" || ctl.stopped != "ses-3" {
+		t.Errorf("cancel/stop = %q / %q, want ses-3", ctl.cancelled, ctl.stopped)
+	}
+}
+
+func TestControlActionsNeedFocusedSession(t *testing.T) {
+	ctl := &fakeCmd{}
+	s := newTestServerWith(t, &fakeLister{}, &fakeSurface{current: ""}, ctl)
+	if code := postForm(t, s.Base()+"prompt", "text=hi"); code != http.StatusBadRequest {
+		t.Errorf("prompt with no session = %d, want 400", code)
+	}
+	if ctl.promptedTo != "" {
+		t.Error("prompt dispatched with no focused session")
+	}
+}
+
+// postForm posts a urlencoded body and returns the status code.
+func postForm(t *testing.T, u, body string) int {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodPost, u, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST %s: %v", u, err)
+	}
+	_ = resp.Body.Close()
+	return resp.StatusCode
 }
 
 // A session id containing JSON metacharacters must be safely escaped in hx-vals
@@ -246,7 +420,7 @@ func TestSelectSwitchesTimelineAndReturnsPanel(t *testing.T) {
 
 func TestEventsSSEStreamsWorkspaceBroadcasts(t *testing.T) {
 	evHub := bridge.NewHub[api.Event]()
-	s, err := ui.NewServer(evHub, bridge.NewHub[string](), &fakeLister{}, &fakeSurface{}, fakeConn{up: true})
+	s, err := ui.NewServer(evHub, bridge.NewHub[string](), &fakeLister{}, &fakeSurface{}, fakeConn{up: true}, &fakeCmd{})
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -259,7 +433,7 @@ func TestEventsSSEStreamsWorkspaceBroadcasts(t *testing.T) {
 
 func TestTimelineSSEStreamsRenderedBlocks(t *testing.T) {
 	tlHub := bridge.NewHub[string]()
-	s, err := ui.NewServer(bridge.NewHub[api.Event](), tlHub, &fakeLister{}, &fakeSurface{}, fakeConn{up: true})
+	s, err := ui.NewServer(bridge.NewHub[api.Event](), tlHub, &fakeLister{}, &fakeSurface{}, fakeConn{up: true}, &fakeCmd{})
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}

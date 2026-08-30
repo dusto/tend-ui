@@ -1,13 +1,85 @@
 package templates
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/dusto/tend/api"
 
 	"github.com/dusto/tend-ui/internal/session"
 )
+
+// approvalTitle is a human-facing headline for a pending approval by kind.
+func approvalTitle(a api.ApprovalSummary) string {
+	switch a.Kind {
+	case "file_edit":
+		return "Apply file edit?"
+	case "pane_run":
+		return "Run command?"
+	case "pane_open":
+		return "Open a shell pane?"
+	case "filesystem_access":
+		return "Allow filesystem access?"
+	case "code_action":
+		return "Apply code action?"
+	default:
+		return "Approve " + a.Kind + "?"
+	}
+}
+
+// approvalDetail decodes an approval's Detail into the typed view. Returns the
+// zero value when it does not decode.
+func approvalDetail(a api.ApprovalSummary) api.ApprovalDetail {
+	var d api.ApprovalDetail
+	_ = json.Unmarshal(a.Detail, &d)
+	return d
+}
+
+// approvalDiff returns the unified diff for a file-edit approval (all targets
+// joined), or "" for a non-edit kind.
+func approvalDiff(a api.ApprovalSummary) string {
+	d := approvalDetail(a)
+	if d.FileEdit == nil {
+		return ""
+	}
+	var b strings.Builder
+	for i, tgt := range d.FileEdit.Targets {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(tgt.URI + "\n" + tgt.Diff)
+	}
+	return b.String()
+}
+
+// approvalCommand returns the command for a pane-run approval, or "".
+func approvalCommand(a api.ApprovalSummary) string {
+	if d := approvalDetail(a); d.PaneRun != nil {
+		return d.PaneRun.Command
+	}
+	return ""
+}
+
+// diffLineClass classifies a unified-diff line for coloring.
+func diffLineClass(line string) string {
+	switch {
+	case strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---"):
+		return "d-file"
+	case strings.HasPrefix(line, "@@"):
+		return "d-hunk"
+	case strings.HasPrefix(line, "+"):
+		return "d-add"
+	case strings.HasPrefix(line, "-"):
+		return "d-del"
+	default:
+		return "d-ctx"
+	}
+}
+
+// diffLines splits a diff into its lines for per-line coloring.
+func diffLines(diff string) []string { return strings.Split(diff, "\n") }
 
 // SessionHeaderData bundles what the shell needs to render the focused session's
 // header on first paint (the /header endpoint re-renders it on poll).

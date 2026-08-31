@@ -216,17 +216,44 @@ body {
 }
 .rail-count { color: var(--ink-faint); }
 .rail-empty { padding: 8px 14px; font-size: 12px; }
+/* Repo → sessions hierarchy: each workspace is a group with a repo header and
+   its sessions nested under a guide line. */
+.rail-group { display: flex; flex-direction: column; }
 .rail-ws {
-  padding: 8px 14px 3px;
-  font-size: 10.5px;
-  letter-spacing: 0.3px;
-  color: var(--ink-faint);
-  text-overflow: ellipsis;
-  overflow: hidden;
-  white-space: nowrap;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 14px 5px;
   border-top: 1px solid var(--line);
 }
-.rail-ws:first-of-type { border-top: none; }
+.rail-group:first-of-type .rail-ws { border-top: none; }
+.rail-ws-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-ws-count {
+  font-size: 10px;
+  color: var(--ink-faint);
+  background: var(--panel-2, #12171e);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 0 6px;
+}
+/* Sessions sit indented under their repo, joined by a vertical guide. */
+.rail-sessions {
+  display: flex;
+  flex-direction: column;
+  margin-left: 20px;
+  border-left: 1px solid var(--line);
+}
+.rail-sessions .sess { padding-left: 12px; }
 .sess {
   display: flex;
   flex-direction: column;

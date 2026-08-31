@@ -46,9 +46,19 @@ func TestSessionRailRendersWorkspaceHeaders(t *testing.T) {
 		t.Fatalf("render: %v", err)
 	}
 	out := b.String()
-	for _, want := range []string{`class="rail-ws`, ">tend<", ">tend-ui<", "/home/u/work/tend"} {
+	for _, want := range []string{
+		`class="rail-group"`,         // each repo is a group
+		`class="rail-ws-name">tend<`, // repo name header
+		`class="rail-ws-name">tend-ui<`,
+		`class="rail-sessions"`, // sessions nested under the repo
+		"/home/u/work/tend",     // full worktree root on hover
+	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rail missing %q:\n%s", want, out)
 		}
+	}
+	// The nested container comes after its repo header (hierarchy, not a flat list).
+	if strings.Index(out, `class="rail-ws-name">tend<`) > strings.Index(out, `class="rail-sessions"`) {
+		t.Errorf("repo header should precede its nested sessions:\n%s", out)
 	}
 }

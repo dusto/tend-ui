@@ -79,10 +79,17 @@ templ SessionRail(sessions []api.SessionInfo, currentID api.SessionID) {
 			<div class="rail-empty dim">no active sessions</div>
 		}
 		for _, g := range groupByWorkspace(sessions) {
-			<div class="rail-ws mono" title={ g.Title }>{ g.Label }</div>
-			for _, s := range g.Sessions {
-				@sessionRow(s, s.SessionID == currentID)
-			}
+			<div class="rail-group">
+				<div class="rail-ws" title={ g.Title }>
+					<span class="rail-ws-name">{ g.Label }</span>
+					<span class="rail-ws-count mono">{ itoa(len(g.Sessions)) }</span>
+				</div>
+				<div class="rail-sessions">
+					for _, s := range g.Sessions {
+						@sessionRow(s, s.SessionID == currentID)
+					}
+				</div>
+			</div>
 		}
 	</div>
 }

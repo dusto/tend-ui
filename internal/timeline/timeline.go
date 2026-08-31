@@ -146,7 +146,7 @@ func (t *Timeline) follow(ctx context.Context) error {
 	// Follow the selected (or auto-picked) session; re-pick and re-subscribe in
 	// place when the user switches, without dropping the connection.
 	for ctx.Err() == nil {
-		sess, ok, err := t.pick(ctx, conn, ws.WorkspaceID)
+		sess, ok, err := t.pick(ctx, conn)
 		if err != nil {
 			return err
 		}
@@ -232,10 +232,14 @@ func (t *Timeline) setStream(sess api.SessionInfo, epoch string) {
 }
 
 // pick chooses the session to follow: the user's selection if it still exists,
-// otherwise a running session, otherwise the first listed.
-func (t *Timeline) pick(ctx context.Context, conn *client.Conn, ws api.WorkspaceID) (api.SessionInfo, bool, error) {
+// otherwise a running session, otherwise the first listed. It lists DAEMON-WIDE
+// (empty workspace id) to match the rail, so a session the rail shows from any
+// workspace can actually be followed — session streams are keyed by session id,
+// not workspace, so subscribing to the chosen session's stream works regardless
+// of which workspace it belongs to.
+func (t *Timeline) pick(ctx context.Context, conn *client.Conn) (api.SessionInfo, bool, error) {
 	var res api.SessionListResult
-	if err := conn.Call(ctx, "session.list", api.SessionListParams{WorkspaceID: ws}, &res); err != nil {
+	if err := conn.Call(ctx, "session.list", api.SessionListParams{}, &res); err != nil {
 		return api.SessionInfo{}, false, err
 	}
 	if len(res.Sessions) == 0 {

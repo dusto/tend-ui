@@ -216,6 +216,17 @@ body {
 }
 .rail-count { color: var(--ink-faint); }
 .rail-empty { padding: 8px 14px; font-size: 12px; }
+.rail-ws {
+  padding: 8px 14px 3px;
+  font-size: 10.5px;
+  letter-spacing: 0.3px;
+  color: var(--ink-faint);
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  border-top: 1px solid var(--line);
+}
+.rail-ws:first-of-type { border-top: none; }
 .sess {
   display: flex;
   flex-direction: column;

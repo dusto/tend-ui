@@ -50,6 +50,40 @@ func TestListReturnsSessionsAndReusesConnection(t *testing.T) {
 	}
 }
 
+func TestListIsDaemonWide(t *testing.T) {
+	// A standalone surface lists every workspace's sessions, so session.list must
+	// be called with an EMPTY workspace id (the daemon filters only when it is set).
+	srv := clienttest.New(t)
+	srv.Handle("workspace.open", func(json.RawMessage) (any, error) {
+		return api.WorkspaceInfo{WorkspaceID: "ws-launch", WorktreeRoot: "/repo"}, nil
+	})
+	var gotWS api.WorkspaceID = "unset"
+	srv.Handle("session.list", func(params json.RawMessage) (any, error) {
+		var p api.SessionListParams
+		_ = json.Unmarshal(params, &p)
+		gotWS = p.WorkspaceID
+		return api.SessionListResult{Sessions: []api.SessionInfo{
+			{SessionID: "ses-a", WorkspaceID: "ws-1", WorktreeRoot: "/a"},
+			{SessionID: "ses-b", WorkspaceID: "ws-2", WorktreeRoot: "/b"},
+		}}, nil
+	})
+
+	l := session.NewListerWithSocket("/repo", srv.Socket())
+	t.Cleanup(func() { _ = l.Close() })
+
+	got, err := l.List(testCtx(t))
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if gotWS != "" {
+		t.Errorf("session.list workspace id = %q, want empty (daemon-wide)", gotWS)
+	}
+	// Sessions from different workspaces are all returned.
+	if len(got) != 2 {
+		t.Fatalf("List = %+v, want two sessions across workspaces", got)
+	}
+}
+
 func TestListErrorsWhenDaemonAbsent(t *testing.T) {
 	missing := t.TempDir() + "/nope.sock"
 	l := session.NewListerWithSocket("/repo", missing)

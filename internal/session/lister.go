@@ -2,6 +2,12 @@
 // holds a lazily-(re)dialed daemon connection and calls session.list on demand;
 // the rail polls it. Selecting a session is handled by the timeline follower —
 // this package only reads.
+//
+// tend-ui is a STANDALONE surface: it lists every session the daemon holds, not
+// only those in its launch directory's workspace. Scoping the list to the launch
+// dir hid sessions living in other worktrees (an empty rail while the connection
+// was healthy — tend-du1.16), so List passes an empty workspace id, which the
+// daemon treats as "all workspaces". The rail groups the results by workspace.
 package session
 
 import (
@@ -14,16 +20,15 @@ import (
 
 const minPluginToDaemon = "0.8.0"
 
-// Lister returns the daemon's sessions for a workspace. It keeps one connection
-// and reconnects lazily, so repeated List calls (the rail's poll) don't re-dial
-// each time. Safe for concurrent use.
+// Lister returns every session the daemon holds. It keeps one connection and
+// reconnects lazily, so repeated List calls (the rail's poll) don't re-dial each
+// time. Safe for concurrent use.
 type Lister struct {
 	dir    string
 	socket string // "" = the daemon's default socket
 
 	mu   sync.Mutex
 	conn *client.Conn
-	ws   api.WorkspaceID
 }
 
 // NewLister returns a Lister for the workspace containing dir, using the
@@ -36,8 +41,9 @@ func NewListerWithSocket(dir, socket string) *Lister {
 }
 
 // List returns the sessions for the launch directory's workspace. It dials and
-// opens the workspace on first use (or after a dropped connection); a call error
-// drops the connection so the next List redials.
+// opens the launch-dir workspace on first use only to register this client's
+// home context — the listing itself is daemon-wide (empty workspace id). A call
+// error drops the connection so the next List redials.
 func (l *Lister) List(ctx context.Context) ([]api.SessionInfo, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -51,17 +57,19 @@ func (l *Lister) List(ctx context.Context) ([]api.SessionInfo, error) {
 		if err != nil {
 			return nil, err
 		}
-		var ws api.WorkspaceInfo
-		if err := conn.Call(ctx, "workspace.open", api.WorkspaceOpenParams{Dir: l.dir}, &ws); err != nil {
+		// Open the launch-dir workspace for client presence, but do NOT scope the
+		// listing to it (see the package doc / tend-du1.16).
+		if err := conn.Call(ctx, "workspace.open", api.WorkspaceOpenParams{Dir: l.dir}, &api.WorkspaceInfo{}); err != nil {
 			_ = conn.Close()
 			return nil, err
 		}
 		l.conn = conn
-		l.ws = ws.WorkspaceID
 	}
 
+	// Empty WorkspaceID: the daemon returns sessions from every workspace (it
+	// filters only when the id is set).
 	var res api.SessionListResult
-	if err := l.conn.Call(ctx, "session.list", api.SessionListParams{WorkspaceID: l.ws}, &res); err != nil {
+	if err := l.conn.Call(ctx, "session.list", api.SessionListParams{}, &res); err != nil {
 		_ = l.conn.Close()
 		l.conn = nil
 		return nil, err

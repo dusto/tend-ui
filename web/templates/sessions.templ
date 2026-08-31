@@ -1,6 +1,10 @@
 package templates
 
-import "github.com/dusto/tend/api"
+import (
+	"path/filepath"
+
+	"github.com/dusto/tend/api"
+)
 
 // sessionName is the human-facing name for a session: its label, else its task
 // id, else a short session id.
@@ -18,9 +22,53 @@ func sessionName(s api.SessionInfo) string {
 	return id
 }
 
-// SessionRail is the left rail: the workspace's sessions with live status,
-// polled by htmx. currentID marks the session the timeline is following. Picking
-// a row POSTs /select, which switches the timeline and refreshes this rail.
+// workspaceGroup is a run of sessions sharing a workspace, for the rail's
+// per-workspace grouping.
+type workspaceGroup struct {
+	Label    string // human-facing workspace name (worktree basename)
+	Title    string // full worktree root, for the hover title
+	Sessions []api.SessionInfo
+}
+
+// workspaceLabel names a session's workspace for the rail: the worktree root's
+// basename (what a user recognizes), falling back to a short workspace id.
+func workspaceLabel(s api.SessionInfo) string {
+	if s.WorktreeRoot != "" {
+		return filepath.Base(s.WorktreeRoot)
+	}
+	if id := string(s.WorkspaceID); id != "" {
+		if len(id) > 8 {
+			return id[:8]
+		}
+		return id
+	}
+	return "workspace"
+}
+
+// groupByWorkspace buckets sessions by workspace, preserving first-seen order so
+// the rail is stable across polls. tend-ui lists every workspace's sessions
+// (tend-du1.16), so the rail labels which workspace each belongs to.
+func groupByWorkspace(sessions []api.SessionInfo) []workspaceGroup {
+	idx := map[api.WorkspaceID]int{}
+	var groups []workspaceGroup
+	for _, s := range sessions {
+		i, ok := idx[s.WorkspaceID]
+		if !ok {
+			i = len(groups)
+			idx[s.WorkspaceID] = i
+			groups = append(groups, workspaceGroup{Label: workspaceLabel(s), Title: s.WorktreeRoot})
+		}
+		groups[i].Sessions = append(groups[i].Sessions, s)
+	}
+	return groups
+}
+
+// SessionRail is the left rail: every session the daemon holds, grouped by
+// workspace with live status, polled by htmx. currentID marks the session the
+// timeline is following. Picking a row POSTs /select, which switches the timeline
+// and refreshes this rail. Grouping by workspace makes it explicit which
+// workspace a session belongs to, so an empty rail is never mistaken for a
+// connection problem (tend-du1.16).
 templ SessionRail(sessions []api.SessionInfo, currentID api.SessionID) {
 	<div id="session-rail" class="rail-inner" hx-get="sessions" hx-trigger="every 3s" hx-swap="outerHTML">
 		<div class="rail-head">
@@ -28,10 +76,13 @@ templ SessionRail(sessions []api.SessionInfo, currentID api.SessionID) {
 			<span class="rail-count mono">{ itoa(len(sessions)) }</span>
 		</div>
 		if len(sessions) == 0 {
-			<div class="rail-empty dim">no sessions in this workspace</div>
+			<div class="rail-empty dim">no active sessions</div>
 		}
-		for _, s := range sessions {
-			@sessionRow(s, s.SessionID == currentID)
+		for _, g := range groupByWorkspace(sessions) {
+			<div class="rail-ws mono" title={ g.Title }>{ g.Label }</div>
+			for _, s := range g.Sessions {
+				@sessionRow(s, s.SessionID == currentID)
+			}
 		}
 	</div>
 }

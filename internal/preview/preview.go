@@ -19,18 +19,40 @@ import (
 	"sync"
 )
 
-// contentSecurityPolicy constrains what served artifact content may do. The
-// content renders and may run its OWN inline scripts (needed for interactive
-// agent HTML and, later, mermaid), but default-src 'none' blocks loading any
-// external resource and connect-src 'none' blocks fetch/XHR/WebSocket — so agent
-// content cannot phone home or reach the shell/daemon. Combined with the iframe's
-// sandbox attribute (an opaque origin, no same-origin access), this is the
-// preview boundary.
-const contentSecurityPolicy = "default-src 'none'; " +
+// contentSecurityPolicy constrains what served artifact content may do. Scripts
+// ARE allowed so interactive agent HTML (and, later, mermaid) works, but every
+// exfiltration channel is locked:
+//   - sandbox allow-scripts   : sandboxes the document server-side (opaque origin,
+//     no forms/popups/top-nav; scripts allowed), so the
+//     restrictions are intrinsic to the resource, not
+//     only asserted by the framing <iframe>.
+//   - default-src 'none'      : no external resource loads (scripts, images, css…).
+//   - script-src 'unsafe-inline': the content's OWN inline scripts run; nothing
+//     external can be pulled in.
+//   - connect-src 'none'      : no fetch / XHR / WebSocket / sendBeacon.
+//   - form-action 'none'      : no form posts.
+//   - navigate-to 'none'      : asks to deny document navigations, which would
+//     close location = "http://evil?…". A spike confirmed
+//     WebKitGTK does NOT honor navigate-to, so it is
+//     best-effort (kept for engines that do). With scripts
+//     allowed, this leaves ONE residual: a script can
+//     navigate the frame ITSELF to an external URL. That is
+//     VISIBLE (the pane loads that URL) and never a silent
+//     beacon (all of those are blocked above), and the
+//     opaque origin means it can carry no shell/daemon data —
+//     only what a user typed into the artifact. Closing it
+//     needs a WebKit decide-policy navigation allowlist in
+//     the shell (tracked follow-up), not a CSP knob.
+//
+// The frame also carries no allow-same-origin, so agent content can read nothing
+// from the shell or the daemon.
+const contentSecurityPolicy = "sandbox allow-scripts; " +
+	"default-src 'none'; " +
 	"img-src data: blob:; media-src data: blob:; " +
 	"style-src 'unsafe-inline'; font-src data:; " +
 	"script-src 'unsafe-inline'; connect-src 'none'; " +
-	"form-action 'none'; base-uri 'none'"
+	"form-action 'none'; base-uri 'none'; frame-src 'none'; " +
+	"navigate-to 'none'"
 
 // maxArtifacts caps how many artifacts the per-run store retains, evicting the
 // oldest, so a long session cannot grow the store without bound. The server is

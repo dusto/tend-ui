@@ -138,9 +138,12 @@ templ TLArtifact(a api.ArtifactWritten, previewURL string) {
 			</div>
 			switch {
 				case previewURL != "":
-					// Live render in the sandbox: a cross-origin iframe with no
-					// same-origin access (sandbox="allow-scripts" only), so agent
-					// content renders without reaching the shell or the daemon.
+					// Live render in the sandbox: a cross-origin iframe with scripts
+					// allowed but nothing else — no same-origin access, no forms, no
+					// popups, no top-navigation. Combined with the preview server's CSP
+					// (default-src/connect-src 'none', navigate-to 'none') agent content
+					// renders and runs its own JS without any path to the shell, the
+					// daemon, or the network.
 					<div class="art-preview">
 						<iframe
 							class="art-frame"

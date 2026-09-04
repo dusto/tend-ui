@@ -109,7 +109,11 @@ func TestTLArtifactRendersSandboxIframe(t *testing.T) {
 		t.Errorf("expected a sandboxed iframe pointing at the preview url: %q", out)
 	}
 	if !strings.Contains(out, `sandbox="allow-scripts"`) {
-		t.Errorf("iframe must be sandboxed (allow-scripts, no allow-same-origin): %q", out)
+		t.Errorf("iframe must be sandboxed to allow-scripts only: %q", out)
+	}
+	// Scripts are allowed, but same-origin access must never be granted.
+	if strings.Contains(out, "allow-same-origin") {
+		t.Errorf("iframe must not grant same-origin access: %q", out)
 	}
 	// The raw HTML must not be inlined in the shell — only framed.
 	if strings.Contains(out, "<h1>x</h1>") {

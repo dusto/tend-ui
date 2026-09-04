@@ -50,9 +50,17 @@ func TestServesStoredArtifactWithSandboxHeaders(t *testing.T) {
 	if ct := header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
 		t.Errorf("content-type = %q", ct)
 	}
-	// The sandbox boundary: a CSP that blocks external loads and network exfil.
+	// The sandbox boundary: scripts run, but every exfil channel is locked —
+	// external loads, network APIs, form posts, and document navigation — plus a
+	// server-side sandbox directive.
 	csp := header.Get("Content-Security-Policy")
-	for _, want := range []string{"default-src 'none'", "connect-src 'none'"} {
+	for _, want := range []string{
+		"sandbox allow-scripts",
+		"default-src 'none'",
+		"connect-src 'none'",
+		"form-action 'none'",
+		"navigate-to 'none'",
+	} {
 		if !strings.Contains(csp, want) {
 			t.Errorf("CSP %q missing %q", csp, want)
 		}

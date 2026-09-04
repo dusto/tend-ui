@@ -218,3 +218,15 @@ func TestToolCallRendersArgAndFullInput(t *testing.T) {
 		}
 	}
 }
+
+func TestCoalesceRendersArtifact(t *testing.T) {
+	out := collect(ev("artifact_written", api.ArtifactWritten{
+		URI: "file:///repo/doc.md", Content: "# Hi", Diff: "+# Hi",
+	}))
+	if len(out) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(out))
+	}
+	if !strings.Contains(out[0], "doc.md") || !strings.Contains(out[0], "<h1") {
+		t.Errorf("artifact block wrong: %s", out[0])
+	}
+}

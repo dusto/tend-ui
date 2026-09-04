@@ -196,6 +196,28 @@ body {
 .ts-ok { color: #a6e0af; background: rgba(75, 184, 90, 0.10); border-color: rgba(75, 184, 90, 0.28); }
 .ts-fail { color: #f7a7a9; background: rgba(247, 103, 107, 0.10); border-color: rgba(247, 103, 107, 0.30); }
 .tl.kind-edit .tl-node { border-color: #e3b341; }
+/* Written-file artifacts rendered inline. */
+.tl.artifact .tl-fn { color: #f2d79a; }
+.art-render { margin-top: 8px; }
+.art-diff, .art-code {
+  margin: 8px 0 0;
+  padding: 8px 0;
+  max-height: 360px;
+  overflow: auto;
+  font-size: 11.5px;
+  line-height: 1.6;
+  background: var(--panel-2, #12171e);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.art-code { padding: 10px 12px; white-space: pre-wrap; word-break: break-word; color: var(--ink-mut); }
+.art-diff > div { padding: 0 12px; white-space: pre-wrap; word-break: break-word; }
+.art-diff .d-file { color: var(--ink-dim); }
+.art-diff .d-hunk { color: var(--think, #a98be0); background: rgba(169, 139, 224, 0.06); }
+.art-diff .d-add { color: #b6e8bf; background: rgba(75, 184, 90, 0.09); }
+.art-diff .d-del { color: #f4b3b5; background: rgba(247, 103, 107, 0.09); }
+.art-diff .d-ctx { color: var(--ink-mut); }
+.art-note { margin-top: 6px; font-size: 11px; }
 .rail {
   min-height: 0;
   overflow-y: auto;

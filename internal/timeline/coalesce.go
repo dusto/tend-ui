@@ -97,6 +97,11 @@ func (c *coalescer) renderDiscrete(ev api.Event) {
 		if decode(ev, &p) {
 			c.emit(render(templates.TLToolCall(p.ToolCallID, p.Name, argSummary(p.RawInput), toolKind(p.Name), argFull(p.RawInput))))
 		}
+	case "artifact_written":
+		var p api.ArtifactWritten
+		if decode(ev, &p) {
+			c.emit(render(templates.TLArtifact(p)))
+		}
 	case "agent_error":
 		var p api.AgentError
 		if decode(ev, &p) {

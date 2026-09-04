@@ -50,6 +50,48 @@ func approvalToolInput(a api.ApprovalSummary) string {
 	return ""
 }
 
+// artifactFileName is the display name for an artifact: the file's basename,
+// with any file:// prefix stripped.
+func artifactFileName(uri string) string {
+	return filepath.Base(strings.TrimPrefix(uri, "file://"))
+}
+
+// artifactExt is the lowercased extension of an artifact's uri.
+func artifactExt(uri string) string {
+	return strings.ToLower(filepath.Ext(strings.TrimPrefix(uri, "file://")))
+}
+
+// artifactIsMarkdown reports whether an artifact renders as markdown (safe tier).
+func artifactIsMarkdown(uri string) bool {
+	switch artifactExt(uri) {
+	case ".md", ".markdown":
+		return true
+	}
+	return false
+}
+
+// artifactIsImage reports whether an artifact is a binary image — not inlinable
+// as text; a real preview needs the sandbox (tend-du1.9).
+func artifactIsImage(uri string) bool {
+	switch artifactExt(uri) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp":
+		return true
+	}
+	return false
+}
+
+// artifactIsRich reports whether an artifact is text that RENDERS to something
+// visual (an SVG, an HTML page, a mermaid diagram). Its source/diff is shown
+// safely in the shell, but the rendered form must run in the sandbox (tend-du1.9),
+// so the card shows a note pointing there.
+func artifactIsRich(uri string) bool {
+	switch artifactExt(uri) {
+	case ".svg", ".html", ".htm", ".mmd", ".mermaid":
+		return true
+	}
+	return false
+}
+
 // prettyJSON renders raw JSON indented for display, falling back to the trimmed
 // raw text when it does not parse and "" when empty.
 func prettyJSON(raw json.RawMessage) string {

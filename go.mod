@@ -6,7 +6,7 @@ replace github.com/webview/webview_go => ./third_party/webview_go
 
 require (
 	github.com/a-h/templ v0.3.1020
-	github.com/dusto/tend v0.1.1-0.20260830214002-f601dfb9103f
+	github.com/dusto/tend v0.1.1-0.20260831131238-93fa494c7710
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/webview/webview_go v0.0.0-00010101000000-000000000000
 	github.com/yuin/goldmark v1.8.5

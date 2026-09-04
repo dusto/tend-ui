@@ -3,6 +3,8 @@ package templates
 import (
 	"strconv"
 
+	"github.com/dusto/tend/api"
+
 	"github.com/dusto/tend-ui/internal/markdown"
 )
 
@@ -117,6 +119,47 @@ templ TLToolStatus(id, status string, oob bool) {
 		}
 		class={ "tl-tstat", "ts-" + statusClass2(status) }
 	>{ status }</span>
+}
+
+// TLArtifact renders a file the agent wrote or edited (an artifact_written event)
+// inline, so you see WHAT changed, not just that a file changed. Safe tier: a
+// markdown file renders as markdown; anything else shows the change as a code
+// diff (or the new content when there is no diff). Rich types (SVG/HTML/mermaid)
+// show their source diff plus a note that the rendered preview lands with the
+// sandbox (tend-du1.9); a binary image shows a note only. data-kind="edit" files
+// it under the Edits timeline filter.
+templ TLArtifact(a api.ArtifactWritten) {
+	<div class="tl tool kind-edit artifact" data-kind="edit">
+		<div class="tl-gutter"><span class="tl-node"></span></div>
+		<div class="tl-main">
+			<div class="tl-who">wrote file</div>
+			<div class="tl-tool">
+				<span class="tl-fn mono">{ artifactFileName(a.URI) }</span>
+			</div>
+			switch {
+				case artifactIsImage(a.URI):
+					<div class="art-note dim">image file — preview lands with the sandbox</div>
+				case artifactIsMarkdown(a.URI) && a.Content != "":
+					<div class="tl-body md art-render">
+						@templ.Raw(markdown.ToSafeHTML(a.Content))
+					</div>
+				case a.Diff != "":
+					<pre class="art-diff mono">
+						for _, line := range diffLines(a.Diff) {
+							<div class={ diffLineClass(line) }>{ line }</div>
+						}
+					</pre>
+					if artifactIsRich(a.URI) {
+						<div class="art-note dim">rendered preview lands with the sandbox</div>
+					}
+				case a.Content != "":
+					<pre class="art-code mono">{ a.Content }</pre>
+			}
+			if a.Truncated {
+				<div class="art-note dim">content omitted (too large to inline)</div>
+			}
+		</div>
+	</div>
 }
 
 templ TLError(message string) {

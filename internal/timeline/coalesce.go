@@ -24,15 +24,16 @@ import (
 // It is driven from a single goroutine (the follow loop), so it needs no locking.
 type coalescer struct {
 	emit func(html string)
+	prev Previewer // optional; nil renders rich artifacts as a note instead of a live sandbox
 
 	buf  strings.Builder
 	kind string // "message" | "thought" | "" — what buf is accumulating
 }
 
 // newCoalescer returns a coalescer that calls emit with each completed block's
-// HTML.
-func newCoalescer(emit func(html string)) *coalescer {
-	return &coalescer{emit: emit}
+// HTML. prev may be nil (no sandbox: rich artifacts fall back to a note).
+func newCoalescer(emit func(html string), prev Previewer) *coalescer {
+	return &coalescer{emit: emit, prev: prev}
 }
 
 // flush renders and emits whatever text is buffered, then clears it.
@@ -100,7 +101,7 @@ func (c *coalescer) renderDiscrete(ev api.Event) {
 	case "artifact_written":
 		var p api.ArtifactWritten
 		if decode(ev, &p) {
-			c.emit(render(templates.TLArtifact(p)))
+			c.emit(render(templates.TLArtifact(p, c.previewURL(p))))
 		}
 	case "agent_error":
 		var p api.AgentError

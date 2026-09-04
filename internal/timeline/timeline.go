@@ -65,10 +65,17 @@ type Timeline struct {
 	toolIdx map[string]int // tool_call_id -> index in tools
 }
 
-// New returns a Timeline that pushes rendered blocks to hub.
+// New returns a Timeline that pushes rendered blocks to hub. Rich artifacts
+// render as a note (no sandbox); use NewWithPreview to render them live.
 func New(dir string, hub *bridge.Hub[string]) *Timeline {
+	return NewWithPreview(dir, hub, nil)
+}
+
+// NewWithPreview is New with a sandbox previewer, so rich artifacts (HTML, SVG)
+// render live in a sandboxed iframe. prev may be nil.
+func NewWithPreview(dir string, hub *bridge.Hub[string], prev Previewer) *Timeline {
 	t := &Timeline{dir: dir, hub: hub, switchCh: make(chan struct{}, 1)}
-	t.coal = newCoalescer(func(html string) { hub.Broadcast(html) })
+	t.coal = newCoalescer(func(html string) { hub.Broadcast(html) }, prev)
 	return t
 }
 
@@ -412,6 +419,47 @@ func (t *Timeline) applyTools(ev api.Event) {
 			t.hub.Broadcast(render(templates.TLToolRefine(p.ToolCallID, t.tools[i].Name, t.tools[i].Arg, t.tools[i].Full)))
 		}
 	}
+}
+
+// Previewer stores agent artifact content and returns a sandboxed URL that
+// renders it. *preview.Server satisfies it. ok is false when there is nothing to
+// preview.
+type Previewer interface {
+	URL(mediaType string, content []byte) (string, bool)
+}
+
+// previewURL returns the sandboxed iframe URL for a rich artifact, or "" when
+// there is no previewer, no renderable content, or the type is not one the
+// sandbox renders yet. Only the safe, self-contained text types are routed to the
+// sandbox here (SVG, HTML); other rich types fall back to the note in TLArtifact.
+func (c *coalescer) previewURL(a api.ArtifactWritten) string {
+	if c.prev == nil || a.Content == "" || a.Truncated {
+		return ""
+	}
+	mt, ok := previewMediaType(a.URI)
+	if !ok {
+		return ""
+	}
+	url, ok := c.prev.URL(mt, []byte(a.Content))
+	if !ok {
+		return ""
+	}
+	return url
+}
+
+// previewMediaType maps an artifact uri to the media type the sandbox serves it
+// as, for the rich types the sandbox renders. Returns ok=false for types not yet
+// supported (mermaid needs a bundled renderer; images are binary), which then
+// render as a note.
+func previewMediaType(uri string) (string, bool) {
+	u := strings.TrimPrefix(uri, "file://")
+	switch strings.ToLower(u[strings.LastIndexByte(u, '.')+1:]) {
+	case "svg":
+		return "image/svg+xml", true
+	case "html", "htm":
+		return "text/html; charset=utf-8", true
+	}
+	return "", false
 }
 
 // toolKind classifies a tool for the timeline filter: buffer mutations are

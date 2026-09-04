@@ -128,7 +128,7 @@ templ TLToolStatus(id, status string, oob bool) {
 // show their source diff plus a note that the rendered preview lands with the
 // sandbox (tend-du1.9); a binary image shows a note only. data-kind="edit" files
 // it under the Edits timeline filter.
-templ TLArtifact(a api.ArtifactWritten) {
+templ TLArtifact(a api.ArtifactWritten, previewURL string) {
 	<div class="tl tool kind-edit artifact" data-kind="edit">
 		<div class="tl-gutter"><span class="tl-node"></span></div>
 		<div class="tl-main">
@@ -137,6 +137,37 @@ templ TLArtifact(a api.ArtifactWritten) {
 				<span class="tl-fn mono">{ artifactFileName(a.URI) }</span>
 			</div>
 			switch {
+				case previewURL != "":
+					// Live render in the sandbox: a cross-origin iframe with scripts
+					// allowed but nothing else — no same-origin access, no forms, no
+					// popups, no top-navigation. Combined with the preview server's CSP
+					// (default-src/connect-src 'none', navigate-to 'none') agent content
+					// renders and runs its own JS without any path to the shell, the
+					// daemon, or the network.
+					<div class="art-preview">
+						<iframe
+							class="art-frame"
+							src={ previewURL }
+							sandbox="allow-scripts"
+							loading="lazy"
+							referrerpolicy="no-referrer"
+							title={ artifactFileName(a.URI) }
+						></iframe>
+					</div>
+					<div class="art-note dim">
+						sandboxed preview ·
+						<a href={ templ.SafeURL(previewURL) } target="_blank" rel="noopener noreferrer">open in browser</a>
+					</div>
+					if a.Diff != "" {
+						<details class="art-src">
+							<summary>source</summary>
+							<pre class="art-diff mono">
+								for _, line := range diffLines(a.Diff) {
+									<div class={ diffLineClass(line) }>{ line }</div>
+								}
+							</pre>
+						</details>
+					}
 				case artifactIsImage(a.URI):
 					<div class="art-note dim">image file — preview lands with the sandbox</div>
 				case artifactIsMarkdown(a.URI) && a.Content != "":

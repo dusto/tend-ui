@@ -17,7 +17,7 @@ func ev(typ string, payload any) api.Event {
 // collect drives a coalescer through evs and returns the emitted block HTML.
 func collect(evs ...api.Event) []string {
 	var out []string
-	c := newCoalescer(func(html string) { out = append(out, html) })
+	c := newCoalescer(func(html string) { out = append(out, html) }, nil)
 	for _, e := range evs {
 		c.handle(e)
 	}
@@ -105,7 +105,7 @@ func TestCoalesceRendersPromptAndError(t *testing.T) {
 func TestCoalesceResetDropsBufferedText(t *testing.T) {
 	// A stream switch (reset) must not merge a half-built message into the next.
 	var out []string
-	c := newCoalescer(func(html string) { out = append(out, html) })
+	c := newCoalescer(func(html string) { out = append(out, html) }, nil)
 	c.handle(ev("agent_message_chunk", api.AgentMessageChunk{Text: "stale partial"}))
 	c.reset()
 	c.handle(ev("agent_message_chunk", api.AgentMessageChunk{Text: "fresh"}))
@@ -228,5 +228,49 @@ func TestCoalesceRendersArtifact(t *testing.T) {
 	}
 	if !strings.Contains(out[0], "doc.md") || !strings.Contains(out[0], "<h1") {
 		t.Errorf("artifact block wrong: %s", out[0])
+	}
+}
+
+// fakePreviewer records artifacts and returns a canned URL.
+type fakePreviewer struct {
+	gotMedia string
+	gotBytes int
+}
+
+func (f *fakePreviewer) URL(mediaType string, content []byte) (string, bool) {
+	f.gotMedia = mediaType
+	f.gotBytes = len(content)
+	return "http://127.0.0.1:9/tok/a/xyz", true
+}
+
+func TestCoalesceRoutesRichArtifactToSandbox(t *testing.T) {
+	var out []string
+	fp := &fakePreviewer{}
+	c := newCoalescer(func(html string) { out = append(out, html) }, fp)
+	c.handle(ev("artifact_written", api.ArtifactWritten{
+		URI: "file:///repo/diagram.svg", Content: "<svg></svg>", Diff: "+<svg>",
+	}))
+	if len(out) != 1 {
+		t.Fatalf("expected 1 block, got %d", len(out))
+	}
+	if fp.gotMedia != "image/svg+xml" || fp.gotBytes == 0 {
+		t.Errorf("previewer got media=%q bytes=%d", fp.gotMedia, fp.gotBytes)
+	}
+	if !strings.Contains(out[0], "<iframe") || !strings.Contains(out[0], "sandbox=") {
+		t.Errorf("rich artifact should render a sandboxed iframe: %s", out[0])
+	}
+}
+
+func TestCoalesceRichArtifactNoteWithoutPreviewer(t *testing.T) {
+	var out []string
+	c := newCoalescer(func(html string) { out = append(out, html) }, nil)
+	c.handle(ev("artifact_written", api.ArtifactWritten{
+		URI: "file:///repo/diagram.svg", Content: "<svg></svg>", Diff: "+<svg>",
+	}))
+	if strings.Contains(out[0], "<iframe") {
+		t.Errorf("without a previewer there must be no iframe: %s", out[0])
+	}
+	if !strings.Contains(out[0], "sandbox") {
+		t.Errorf("expected the sandbox note fallback: %s", out[0])
 	}
 }

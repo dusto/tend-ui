@@ -18,6 +18,7 @@ import (
 
 	"github.com/dusto/tend-ui/internal/bridge"
 	"github.com/dusto/tend-ui/internal/control"
+	"github.com/dusto/tend-ui/internal/preview"
 	"github.com/dusto/tend-ui/internal/session"
 	"github.com/dusto/tend-ui/internal/timeline"
 	"github.com/dusto/tend-ui/internal/ui"
@@ -53,7 +54,15 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("resolving working directory: %w", err)
 	}
-	tl := timeline.New(dir, tlHub)
+	// The sandbox: a separate loopback origin that renders agent-authored rich
+	// artifacts (HTML, SVG) with no path back to the shell or daemon (ADR 0005).
+	prev, err := preview.NewServer()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = prev.Close() }()
+
+	tl := timeline.NewWithPreview(dir, tlHub, prev)
 	lister := session.NewLister(dir)
 	defer func() { _ = lister.Close() }()
 	ctl := control.New(dir)

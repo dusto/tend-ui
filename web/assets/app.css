@@ -218,6 +218,19 @@ body {
 .art-diff .d-del { color: #f4b3b5; background: rgba(247, 103, 107, 0.09); }
 .art-diff .d-ctx { color: var(--ink-mut); }
 .art-note { margin-top: 6px; font-size: 11px; }
+.art-note a { color: var(--teal); text-decoration: underline; }
+.art-preview { margin-top: 8px; }
+.art-frame {
+  width: 100%;
+  height: 360px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+.art-src { margin-top: 6px; font-size: 11px; }
+.art-src > summary { cursor: pointer; color: var(--ink-mut); list-style: none; width: fit-content; }
+.art-src > summary::before { content: "▸ "; font-size: 9px; }
+.art-src[open] > summary::before { content: "▾ "; }
 .rail {
   min-height: 0;
   overflow-y: auto;
